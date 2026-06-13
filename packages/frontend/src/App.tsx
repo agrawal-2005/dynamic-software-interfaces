@@ -52,9 +52,12 @@ export default function App() {
     setSidebarOpen(false);
   }
 
-  function handlePresetSelect(spec: BaseViewSpec) {
-    // Preset bypasses the AI — goes straight to current (no preview step)
+  async function handlePresetSelect(spec: BaseViewSpec) {
+    // Preset bypasses the AI and applies instantly — no preview step.
+    // setPending() sets store.pending synchronously, then acceptPending()
+    // reads it and persists in one awaited call.
     setPending(spec);
+    await acceptPending();
   }
 
   function handleGenerated(spec: BaseViewSpec) {
