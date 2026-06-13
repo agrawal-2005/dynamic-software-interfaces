@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { AppVocabulary, BaseViewSpec } from '@dsi/shared';
 import type { SpecValidator } from './spec-validator';
 
@@ -7,28 +7,34 @@ import type { SpecValidator } from './spec-validator';
  *
  * Translates a plain-English description into a validated ViewSpec by:
  * 1. Building a system prompt entirely from the injected AppVocabulary.
- * 2. Calling the Anthropic API (claude-sonnet-4-6).
+ * 2. Calling the Gemini API (gemini-2.0-flash).
  * 3. Parsing the JSON response and running it through SpecValidator.assert().
  *
  * All domain strings (layout names, field keys, enum values) enter through
  * the vocabulary — this class contains no domain-specific literals.
+ * The model provider is fully encapsulated: swapping it means touching only
+ * this file and the constructor call in app-registry.ts.
  */
 export class SpecGenerator {
   constructor(
-    private readonly client: Anthropic,
+    private readonly client: GoogleGenerativeAI,
     private readonly validator: SpecValidator,
     private readonly vocab: AppVocabulary,
   ) {}
 
   async generate(description: string): Promise<BaseViewSpec> {
-    const message = await this.client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: this.buildSystemPrompt(),
-      messages: [{ role: 'user', content: description }],
+    const model = this.client.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: this.buildSystemPrompt(),
     });
 
-    const raw = this.extractJson(message);
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: description }] }],
+      generationConfig: { maxOutputTokens: 1024, temperature: 0.1 },
+    });
+
+    const text = result.response.text();
+    const raw  = this.extractJson(text);
     // validator.assert() throws ValidatorError if the model output is invalid
     return this.validator.assert(raw);
   }
@@ -37,8 +43,8 @@ export class SpecGenerator {
 
   /**
    * System prompt built entirely from AppVocabulary — no hardcoded domain strings.
-   * The vocabulary descriptions, field types, and enum values are what teach the
-   * model about this domain.
+   * The vocabulary descriptions, field types, and enum values teach the model
+   * about this specific domain at runtime.
    */
   private buildSystemPrompt(): string {
     const layoutList = this.vocab.layouts
@@ -54,18 +60,15 @@ export class SpecGenerator {
         if (f.filterable) caps.push('filterable');
         if (f.sortable)   caps.push('sortable');
         if (f.groupable)  caps.push('groupable');
-        const vals = f.enumValues ? ` Allowed values: [${f.enumValues.join(', ')}].` : '';
+        const vals  = f.enumValues ? ` Allowed values: [${f.enumValues.join(', ')}].` : '';
         const flags = caps.length ? ` [${caps.join(', ')}]` : '';
         return `  - "${f.key}" (${f.type}): ${f.description}.${vals}${flags}`;
       })
       .join('\n');
 
-    const groupableKeys = this.vocab.fields
-      .filter((f) => f.groupable).map((f) => f.key);
-    const filterableKeys = this.vocab.fields
-      .filter((f) => f.filterable).map((f) => f.key);
-    const sortableKeys = this.vocab.fields
-      .filter((f) => f.sortable).map((f) => f.key);
+    const groupableKeys  = this.vocab.fields.filter((f) => f.groupable).map((f) => f.key);
+    const filterableKeys = this.vocab.fields.filter((f) => f.filterable).map((f) => f.key);
+    const sortableKeys   = this.vocab.fields.filter((f) => f.sortable).map((f) => f.key);
 
     return `You translate a user's plain-English interface description into a ViewSpec JSON object.
 
@@ -113,17 +116,16 @@ OUTPUT SCHEMA (produce exactly this shape):
 }`.trim();
   }
 
-  private extractJson(message: Anthropic.Message): unknown {
-    const block = message.content.find((b) => b.type === 'text');
-    if (!block || block.type !== 'text') {
-      throw new Error('Anthropic response contained no text block');
-    }
+  private extractJson(text: string): unknown {
     // Strip accidental markdown fences if the model adds them despite instructions
-    const text = block.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const cleaned = text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
     try {
-      return JSON.parse(text);
+      return JSON.parse(cleaned);
     } catch {
-      throw new Error(`Model returned invalid JSON: ${text.slice(0, 200)}`);
+      throw new Error(`Model returned invalid JSON: ${cleaned.slice(0, 200)}`);
     }
   }
 }

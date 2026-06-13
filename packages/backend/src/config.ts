@@ -13,5 +13,5 @@ function optional(name: string, fallback: string): string {
 export const config = {
   port: parseInt(optional('PORT', '4000'), 10),
   // Only required when the agent route is called; checked lazily there.
-  anthropicApiKey: process.env['ANTHROPIC_API_KEY'] ?? '',
+  geminiApiKey: process.env['GEMINI_API_KEY'] ?? '',
 } as const;

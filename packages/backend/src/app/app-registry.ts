@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { AppVocabulary, Item } from '@dsi/shared';
 import { DataStore } from '../engine/data-store';
 import { SpecValidator } from '../engine/spec-validator';
@@ -28,8 +28,8 @@ export type AppRegistry = Record<string, AppBundle>;
  * Build one AppBundle per domain config.
  * Called once at server startup. Adding a domain = one new entry in configs.
  */
-export function buildAppRegistry(anthropicApiKey: string): AppRegistry {
-  const client = new Anthropic({ apiKey: anthropicApiKey });
+export function buildAppRegistry(geminiApiKey: string): AppRegistry {
+  const client = new GoogleGenerativeAI(geminiApiKey);
 
   const configs: Array<{
     id: string;

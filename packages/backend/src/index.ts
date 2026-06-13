@@ -21,7 +21,7 @@ app.use((_req, res, next) => {
 
 // Build all domain bundles at startup.
 // Each domain gets its own DataStore; the engine classes are defined once.
-const registry = buildAppRegistry(config.anthropicApiKey);
+const registry = buildAppRegistry(config.geminiApiKey);
 const domainIds = Object.keys(registry);
 console.log(`Registered domains: ${domainIds.join(', ')}`);
 
