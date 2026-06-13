@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Search, X, RotateCcw, Sparkles, Terminal } from 'lucide-react';
+import { Search, X, RotateCcw, Sparkles } from 'lucide-react';
 import type { BaseViewSpec, Item, AppVocabulary, FilterClause } from '@dsi/shared';
 import { useApp } from '../context/AppContext';
 import { ViewRenderer } from '../engine/view-renderer';
@@ -52,15 +52,13 @@ function applyFilters(items: Item[], filters: FilterClause[]): Item[] {
 export function DashboardPage() {
   const { appId, items, vocabulary, loading, error } = useApp();
 
-  const [search, setSearch]           = useState('');
-  const [hiddenCols, setHiddenCols]   = useState<Set<string>>(new Set());
-  const [colAliases, setColAliases]   = useState<Map<string, string>>(new Map());
-  const [command, setCommand]         = useState('');
-  const [cmdFeedback, setCmdFeedback] = useState<string | null>(null);
-  const [editingCol, setEditingCol]   = useState<string | null>(null);
-  const [editValue, setEditValue]     = useState('');
-  const [chatOpen, setChatOpen]       = useState(false);
-  const [aiSpec, setAiSpec]           = useState<BaseViewSpec | null>(null);
+  const [search, setSearch]         = useState('');
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set());
+  const [colAliases, setColAliases] = useState<Map<string, string>>(new Map());
+  const [editingCol, setEditingCol] = useState<string | null>(null);
+  const [editValue, setEditValue]   = useState('');
+  const [chatOpen, setChatOpen]     = useState(false);
+  const [aiSpec, setAiSpec]         = useState<BaseViewSpec | null>(null);
 
   // Determine group field — AI spec can override vocabulary default
   const groupField = useMemo(() => {
@@ -128,33 +126,27 @@ export function DashboardPage() {
     setEditingCol(null);
   }
 
-  // ── Command bar ───────────────────────────────────────────────────────
+  // ── Local command handler (called from AI chat before hitting the API) ──
 
-  function feedback(msg: string) {
-    setCmdFeedback(msg);
-    setTimeout(() => setCmdFeedback(null), 2500);
-  }
-
-  function processCommand(raw: string) {
-    const cmd = raw.trim().toLowerCase();
-    if (!cmd) return;
+  function handleLocalCommand(text: string): string | null {
+    const cmd = text.trim().toLowerCase();
 
     const hideMatch = cmd.match(/^(?:hide|remove|don'?t show|skip)\s+(.+)$/);
     if (hideMatch) {
       const col = allColumns.find(
-        (c) => c.displayName.toLowerCase().includes(hideMatch[1]) || c.value.toLowerCase().includes(hideMatch[1])
+        (c) => c.displayName.toLowerCase().includes(hideMatch[1].trim()) || c.value.toLowerCase().includes(hideMatch[1].trim())
       );
-      if (col) { hideColumn(col.value); feedback(`Hidden "${col.displayName}"`); setCommand(''); return; }
-      feedback(`No column matching "${hideMatch[1]}"`); return;
+      if (col) { hideColumn(col.value); return `Hidden "${col.displayName}" ✓`; }
+      return null; // no local match — let AI handle it
     }
 
-    const showMatch = cmd.match(/^show\s+(.+)$/);
+    const showMatch = cmd.match(/^(?:show|restore|unhide)\s+(.+)$/);
     if (showMatch) {
       const match = hiddenList.find(
-        (c) => c.displayName.toLowerCase().includes(showMatch[1]) || c.value.toLowerCase().includes(showMatch[1])
+        (c) => c.displayName.toLowerCase().includes(showMatch[1].trim()) || c.value.toLowerCase().includes(showMatch[1].trim())
       );
-      if (match) { showColumn(match.value); feedback(`Restored "${match.displayName}"`); setCommand(''); return; }
-      feedback(`No hidden column matching "${showMatch[1]}"`); return;
+      if (match) { showColumn(match.value); return `Restored "${match.displayName}" ✓`; }
+      return null;
     }
 
     const renameMatch = cmd.match(/^rename\s+(.+?)\s+to\s+(.+)$/);
@@ -163,15 +155,19 @@ export function DashboardPage() {
       const col = allColumns.find(
         (c) => c.displayName.toLowerCase().includes(from.trim()) || c.value.toLowerCase().includes(from.trim())
       );
-      if (col) { setColAliases((p) => new Map([...p, [col.value, to.trim()]])); feedback(`Renamed to "${to.trim()}"`); setCommand(''); return; }
-      feedback(`No column matching "${from.trim()}"`); return;
+      if (col) {
+        setColAliases((p) => new Map([...p, [col.value, to.trim()]]));
+        return `Renamed "${col.displayName}" → "${to.trim()}" ✓`;
+      }
+      return null;
     }
 
     if (/^(?:reset|show all|restore all|clear)$/.test(cmd)) {
-      setHiddenCols(new Set()); setColAliases(new Map()); feedback('All columns restored'); setCommand(''); return;
+      setHiddenCols(new Set()); setColAliases(new Map());
+      return 'All columns restored ✓';
     }
 
-    feedback('Try: "hide done" · "rename open to backlog" · "show all"');
+    return null; // not a local command — fall through to Gemini
   }
 
   if (loading) return <div className="flex-1 flex items-center justify-center text-sm text-gray-400">Loading…</div>;
@@ -237,34 +233,6 @@ export function DashboardPage() {
             />
           </div>
 
-          {/* Quick command bar */}
-          <form onSubmit={(e) => { e.preventDefault(); processCommand(command); }} className="flex items-center gap-1.5">
-            <div className="relative">
-              <Terminal size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={command}
-                onChange={(e) => setCommand(e.target.value)}
-                placeholder='"hide done" · "rename open to backlog"'
-                className="pl-7 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 w-64"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={!command.trim()}
-              className="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:bg-gray-100 disabled:text-gray-400 transition-colors"
-            >
-              Run
-            </button>
-          </form>
-
-          {/* Feedback */}
-          {cmdFeedback && (
-            <span className="text-xs text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 font-medium">
-              {cmdFeedback}
-            </span>
-          )}
-
           {/* Hidden column restore chips */}
           {hiddenList.map((c) => (
             <button
@@ -325,7 +293,8 @@ export function DashboardPage() {
         <AiChatDrawer
           appId={appId}
           tabHint="kanban board"
-          placeholder='e.g. "show only critical items" · "group by assignee"'
+          placeholder='e.g. "hide done" · "rename open to backlog" · "show only critical items"'
+          onLocalCommand={handleLocalCommand}
           onSpec={(spec) => { setAiSpec(spec); }}
           onClose={() => setChatOpen(false)}
         />
