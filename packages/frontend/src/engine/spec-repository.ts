@@ -10,6 +10,7 @@ import type { BaseViewSpec, SpecVersion } from '@dsi/shared';
 export interface ISpecRepository {
   saveVersion(spec: BaseViewSpec): Promise<SpecVersion>;
   getCurrent(): Promise<BaseViewSpec | null>;
+  getCurrentVersionId(): Promise<string | null>;
   setCurrent(versionId: string): Promise<void>;
   listVersions(): Promise<SpecVersion[]>;
   getVersion(id: string): Promise<BaseViewSpec | null>;
@@ -53,6 +54,10 @@ export class LocalStorageSpecRepository implements ISpecRepository {
     if (!shape.currentId) return null;
     const version = shape.versions.find((v) => v.id === shape.currentId);
     return version?.spec ?? null;
+  }
+
+  async getCurrentVersionId(): Promise<string | null> {
+    return this.read().currentId;
   }
 
   async setCurrent(versionId: string): Promise<void> {

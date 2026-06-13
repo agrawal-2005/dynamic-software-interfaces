@@ -4,9 +4,10 @@ import { SpecStore } from '../engine/spec-store';
 import { LocalStorageSpecRepository } from '../engine/spec-repository';
 
 type SpecStoreState = {
-  current:  BaseViewSpec | null;
-  pending:  BaseViewSpec | null;
-  history:  SpecVersion[];
+  current:          BaseViewSpec | null;
+  currentVersionId: string | null;
+  pending:          BaseViewSpec | null;
+  history:          SpecVersion[];
   setPending:    (spec: BaseViewSpec) => void;
   acceptPending: () => Promise<void>;
   rejectPending: () => void;
@@ -24,8 +25,9 @@ export function useSpecStore(appId: string): SpecStoreState {
   const storeRef = useRef<SpecStore | null>(null);
 
   // Snapshot of the store's state — what React actually renders
-  const [snapshot, setSnapshot] = useState<Pick<SpecStoreState, 'current' | 'pending' | 'history'>>({
+  const [snapshot, setSnapshot] = useState<Pick<SpecStoreState, 'current' | 'currentVersionId' | 'pending' | 'history'>>({
     current: null,
+    currentVersionId: null,
     pending: null,
     history: [],
   });
@@ -37,9 +39,10 @@ export function useSpecStore(appId: string): SpecStoreState {
 
     const unsub = store.subscribe(() => {
       setSnapshot({
-        current: store.getCurrent(),
-        pending: store.getPending(),
-        history: store.getHistory(),
+        current:          store.getCurrent(),
+        currentVersionId: store.getCurrentVersionId(),
+        pending:          store.getPending(),
+        history:          store.getHistory(),
       });
     });
 

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import type { BaseViewSpec } from '@dsi/shared';
+import { Sparkles, ArrowUp, Loader2 } from 'lucide-react';
 import { useSpecGenerator } from '../../hooks/useSpecGenerator';
 
 type Props = {
@@ -7,55 +8,84 @@ type Props = {
   onGenerated: (spec: BaseViewSpec) => void;
 };
 
-/**
- * InterfaceBuilder — the describe-to-interface entry point.
- * User types a plain-English description; on submit it calls
- * POST /api/generate-spec and passes the result to the parent
- * (App.tsx routes it to SpecStore.setPending() for preview).
- */
 export function InterfaceBuilder({ appId, onGenerated }: Props) {
   const [description, setDescription] = useState('');
   const { loading, error, generate } = useSpecGenerator();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!description.trim()) return;
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!description.trim() || loading) return;
     const spec = await generate(appId, description);
     if (spec) {
       onGenerated(spec);
       setDescription('');
+      textareaRef.current?.focus();
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void handleSubmit();
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2">
-      <div className="flex gap-2">
+    <div className="space-y-3">
+      {/* Input card */}
+      <div className={[
+        'relative rounded-xl border bg-white transition-shadow',
+        loading
+          ? 'border-indigo-200 shadow-sm shadow-indigo-100'
+          : 'border-gray-200 hover:border-gray-300 focus-within:border-indigo-300 focus-within:shadow-sm focus-within:shadow-indigo-100',
+      ].join(' ')}>
+
+        {/* AI indicator */}
+        <div className="flex items-center gap-1.5 px-3 pt-3 pb-1">
+          <Sparkles size={12} className="text-indigo-400" />
+          <span className="text-xs font-medium text-indigo-500">AI view builder</span>
+        </div>
+
         <textarea
+          ref={textareaRef}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          onKeyDown={(e) => {
-            // Ctrl/Cmd+Enter submits
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmit(e);
-          }}
-          placeholder={`Describe the view you want for ${appId} data… (e.g. "show me high-priority items assigned to me")`}
-          rows={2}
+          onKeyDown={handleKeyDown}
+          placeholder={`Describe the view you want — e.g. "Show high-priority open tickets grouped by assignee"`}
+          rows={3}
           disabled={loading}
-          className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:bg-gray-50 disabled:text-gray-400"
+          className="w-full resize-none bg-transparent px-3 pb-2 pt-1 text-sm text-gray-800 placeholder-gray-400 focus:outline-none disabled:text-gray-400"
         />
-        <button
-          type="submit"
-          disabled={loading || !description.trim()}
-          className="flex-shrink-0 self-end px-4 py-2 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:bg-indigo-300 transition-colors"
-        >
-          {loading ? 'Generating…' : 'Generate'}
-        </button>
+
+        {/* Submit button row */}
+        <div className="flex items-center justify-between px-3 pb-3 pt-1 border-t border-gray-100">
+          <span className="text-xs text-gray-400">⌘↵ to generate</span>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={loading || !description.trim()}
+            className={[
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
+              loading || !description.trim()
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm',
+            ].join(' ')}
+          >
+            {loading
+              ? <><Loader2 size={12} className="animate-spin" /> Generating…</>
+              : <><ArrowUp size={12} /> Generate</>
+            }
+          </button>
+        </div>
       </div>
+
+      {/* Error */}
       {error && (
-        <p className="text-xs text-red-600">{error}</p>
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+          <span className="text-xs text-red-600">{error}</span>
+        </div>
       )}
-      <p className="text-xs text-gray-400">
-        Tip: Ctrl+Enter to submit · The AI generates a view spec — you preview it before it applies.
-      </p>
-    </form>
+    </div>
   );
 }
