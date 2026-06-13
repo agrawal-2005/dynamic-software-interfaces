@@ -1,5 +1,8 @@
+import Anthropic from '@anthropic-ai/sdk';
 import type { AppVocabulary, Item } from '@dsi/shared';
 import { DataStore } from '../engine/data-store';
+import { SpecValidator } from '../engine/spec-validator';
+import { SpecGenerator } from '../engine/spec-generator';
 
 // Domain vocabulary + seed imports
 import { ENGINEERING_VOCABULARY } from './domains/engineering/vocabulary';
@@ -9,25 +12,25 @@ import { PRODUCT_SEED } from './domains/product/seed';
 import { FINANCE_VOCABULARY } from './domains/finance/vocabulary';
 import { FINANCE_SEED } from './domains/finance/seed';
 
-/**
- * One AppBundle per registered domain.
- * SpecValidator and SpecGenerator are added in Step 5; DataStore is here now.
- */
+/** One AppBundle per registered domain. All engine instances live here. */
 export interface AppBundle {
   id: string;
   label: string;
   vocabulary: AppVocabulary;
   store: DataStore;
+  validator: SpecValidator;
+  generator: SpecGenerator;
 }
 
 export type AppRegistry = Record<string, AppBundle>;
 
 /**
  * Build one AppBundle per domain config.
- * Called once at server startup — all engine instances are created here.
- * Adding a domain = one new entry in the configs array.
+ * Called once at server startup. Adding a domain = one new entry in configs.
  */
-export function buildAppRegistry(): AppRegistry {
+export function buildAppRegistry(anthropicApiKey: string): AppRegistry {
+  const client = new Anthropic({ apiKey: anthropicApiKey });
+
   const configs: Array<{
     id: string;
     label: string;
@@ -40,9 +43,11 @@ export function buildAppRegistry(): AppRegistry {
   ];
 
   return Object.fromEntries(
-    configs.map(({ id, label, vocabulary, seed }) => [
-      id,
-      { id, label, vocabulary, store: new DataStore(seed) },
-    ]),
+    configs.map(({ id, label, vocabulary, seed }) => {
+      const store     = new DataStore(seed);
+      const validator = new SpecValidator(vocabulary);
+      const generator = new SpecGenerator(client, validator, vocabulary);
+      return [id, { id, label, vocabulary, store, validator, generator }];
+    }),
   );
 }

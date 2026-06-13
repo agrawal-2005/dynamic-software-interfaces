@@ -6,6 +6,7 @@ import { LiveChannel } from './engine/live-channel';
 import { appsRouter } from './routes/apps';
 import { schemaRouter } from './routes/schema';
 import { itemsRouter } from './routes/items';
+import { agentRouter } from './routes/agent';
 
 const app = express();
 app.use(express.json());
@@ -20,7 +21,7 @@ app.use((_req, res, next) => {
 
 // Build all domain bundles at startup.
 // Each domain gets its own DataStore; the engine classes are defined once.
-const registry = buildAppRegistry();
+const registry = buildAppRegistry(config.anthropicApiKey);
 const domainIds = Object.keys(registry);
 console.log(`Registered domains: ${domainIds.join(', ')}`);
 
@@ -31,9 +32,10 @@ for (const bundle of Object.values(registry)) {
 }
 
 // Routes
-app.use('/api/apps',   appsRouter(registry));
-app.use('/api/schema', schemaRouter(registry));
-app.use('/api/items',  itemsRouter(registry));
+app.use('/api/apps',          appsRouter(registry));
+app.use('/api/schema',        schemaRouter(registry));
+app.use('/api/items',         itemsRouter(registry));
+app.use('/api/generate-spec', agentRouter(registry));
 
 app.get('/api/health', (_req, res) => {
   const connections = Object.fromEntries(
