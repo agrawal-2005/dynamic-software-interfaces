@@ -1,0 +1,14 @@
+{
+  "name": "dynamic-software-interfaces",
+  "private": true,
+  "scripts": {
+    "dev:shared": "pnpm --filter @dsi/shared dev",
+    "dev:backend": "pnpm --filter @dsi/backend dev",
+    "dev:frontend": "pnpm --filter @dsi/frontend dev",
+    "build": "pnpm --filter @dsi/shared build && pnpm --filter @dsi/backend build && pnpm --filter @dsi/frontend build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
