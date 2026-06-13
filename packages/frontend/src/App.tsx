@@ -1,122 +1,172 @@
 import { useState } from 'react';
 import type { BaseViewSpec } from '@dsi/shared';
-import { DomainSelector } from './components/app/DomainSelector';
+
+// Engine
+import { LayoutRegistry } from './engine/layout-registry';
+import { ViewRenderer }   from './engine/view-renderer';
+
+// Layout components (app-specific)
 import { TableLayout }  from './components/layouts/TableLayout';
 import { KanbanLayout } from './components/layouts/KanbanLayout';
 import { FeedLayout }   from './components/layouts/FeedLayout';
 import { CardsLayout }  from './components/layouts/CardsLayout';
-import { LayoutRegistry } from './engine/layout-registry';
-import { ViewRenderer }   from './engine/view-renderer';
+
+// Hooks
 import { useLiveData }    from './hooks/useLiveData';
+import { useSpecStore }   from './hooks/useSpecStore';
+
+// Components
+import { DomainSelector }    from './components/app/DomainSelector';
+import { PersonaSelector }   from './components/app/PersonaSelector';
+import { VersionHistory }    from './components/app/VersionHistory';
+import { InterfaceBuilder }  from './components/builder/InterfaceBuilder';
+import { SpecPreview }       from './components/builder/SpecPreview';
 
 const DEFAULT_APP_ID = 'engineering';
 
-// Registry is created once and shared for the app's lifetime.
-// Adding a layout requires only a new register() call here.
+// Registry created once for the app's lifetime.
 const registry = new LayoutRegistry()
   .register('table',  TableLayout)
   .register('kanban', KanbanLayout)
   .register('feed',   FeedLayout)
   .register('cards',  CardsLayout);
 
-// Hardcoded demo specs — replaced in Step 9 by the InterfaceBuilder.
-const DEMO_SPECS: Record<string, BaseViewSpec> = {
-  engineering: {
-    version: '1.0',
-    name: 'Team Kanban',
-    layout: 'kanban',
-    fields: [
-      { key: 'title',    visible: true },
-      { key: 'assignee', visible: true },
-      { key: 'priority', visible: true },
-    ],
-    groupBy: 'status',
-    filters: [],
-    sort: { field: 'updatedAt', direction: 'desc' },
-    limit: 100,
-  },
-  product: {
-    version: '1.0',
-    name: 'Roadmap by Phase',
-    layout: 'kanban',
-    fields: [
-      { key: 'title',  visible: true },
-      { key: 'owner',  visible: true },
-      { key: 'impact', visible: true },
-      { key: 'effort', visible: true },
-    ],
-    groupBy: 'phase',
-    filters: [],
-    sort: { field: 'updatedAt', direction: 'desc' },
-    limit: 100,
-  },
-  finance: {
-    version: '1.0',
-    name: 'Pending Approvals',
-    layout: 'table',
-    fields: [
-      { key: 'title',       visible: true },
-      { key: 'category',    visible: true },
-      { key: 'amount',      visible: true, label: 'Amount (USD)' },
-      { key: 'department',  visible: true },
-      { key: 'dueDate',     visible: true, label: 'Due' },
-    ],
-    filters: [{ field: 'status', op: 'eq', value: 'pending' }],
-    sort: { field: 'amount', direction: 'desc' },
-    limit: 100,
-  },
-};
-
 export default function App() {
   const [appId, setAppId] = useState(DEFAULT_APP_ID);
-  const { items, connected, loading, error } = useLiveData(appId);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const spec = DEMO_SPECS[appId] ?? DEMO_SPECS['engineering'];
+  // Live data (WS-backed, keyed to appId)
+  const { items, connected, loading: dataLoading, error: dataError } = useLiveData(appId);
+
+  // Spec state (persisted per domain)
+  const {
+    current, pending, history,
+    setPending, acceptPending, rejectPending, restoreVersion,
+  } = useSpecStore(appId);
+
+  // The rendered spec: pending (preview) takes priority over current
+  const activeSpec = pending ?? current;
 
   function handleDomainChange(newAppId: string) {
     setAppId(newAppId);
+    setSidebarOpen(false);
+  }
+
+  function handlePresetSelect(spec: BaseViewSpec) {
+    // Preset bypasses the AI — goes straight to current (no preview step)
+    setPending(spec);
+  }
+
+  function handleGenerated(spec: BaseViewSpec) {
+    setPending(spec);
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6">
-        <h1 className="text-lg font-semibold text-gray-900 tracking-tight">
+    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+
+      {/* ── Top bar ──────────────────────────────────────────────────── */}
+      <header className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-4">
+        <h1 className="text-base font-semibold text-gray-900 tracking-tight whitespace-nowrap">
           Dynamic Software Interfaces
         </h1>
         <DomainSelector activeAppId={appId} onChange={handleDomainChange} />
-        <span className={[
-          'ml-auto text-xs font-medium px-2.5 py-1 rounded-full',
-          connected ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400',
-        ].join(' ')}>
-          {connected ? '● Live' : '○ Connecting…'}
-        </span>
+
+        <div className="ml-auto flex items-center gap-3">
+          <span className={[
+            'text-xs font-medium px-2 py-0.5 rounded-full',
+            connected ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400',
+          ].join(' ')}>
+            {connected ? '● Live' : '○ …'}
+          </span>
+          <button
+            onClick={() => setSidebarOpen((o) => !o)}
+            className="text-xs font-medium text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg px-3 py-1.5"
+          >
+            {sidebarOpen ? 'Hide builder' : 'Customise view'}
+          </button>
+        </div>
       </header>
 
-      {/* Sub-header: current spec name */}
-      <div className="bg-white border-b border-gray-100 px-6 py-2 flex items-center gap-3">
-        <span className="text-sm font-medium text-gray-700">{spec.name}</span>
-        <span className="text-xs text-gray-400">
-          {spec.layout} · {items.length} items
-        </span>
-      </div>
+      {/* ── Main area ────────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
 
-      {/* Main */}
-      <main className="p-6">
-        {loading && (
-          <div className="flex items-center gap-2 text-sm text-gray-400">
-            <span className="animate-spin">⟳</span> Loading…
-          </div>
+        {/* Content pane */}
+        <main className="flex-1 overflow-auto p-5">
+
+          {/* Spec name + meta */}
+          {activeSpec && (
+            <div className="mb-4 flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-gray-800">
+                {activeSpec.name ?? 'Untitled view'}
+              </h2>
+              <span className="text-xs text-gray-400">
+                {activeSpec.layout} · {items.length} items
+                {pending ? ' · preview' : ''}
+              </span>
+            </div>
+          )}
+
+          {/* Pending spec preview banner */}
+          {pending && (
+            <div className="mb-4">
+              <SpecPreview
+                spec={pending}
+                onAccept={acceptPending}
+                onReject={rejectPending}
+              />
+            </div>
+          )}
+
+          {/* Data states */}
+          {dataLoading && (
+            <div className="text-sm text-gray-400 py-8 text-center">Loading…</div>
+          )}
+          {dataError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {dataError}
+            </div>
+          )}
+
+          {/* Renderer */}
+          {!dataLoading && !dataError && activeSpec && (
+            <ViewRenderer spec={activeSpec} items={items} registry={registry} />
+          )}
+
+          {/* No spec yet */}
+          {!dataLoading && !dataError && !activeSpec && (
+            <div className="flex flex-col items-center gap-4 py-16 text-center">
+              <p className="text-gray-500 text-sm max-w-sm">
+                Pick a persona preset or describe the view you want in the builder →
+              </p>
+              <PersonaSelector appId={appId} onSelect={handlePresetSelect} />
+            </div>
+          )}
+        </main>
+
+        {/* Sidebar */}
+        {sidebarOpen && (
+          <aside className="flex-shrink-0 w-80 border-l border-gray-200 bg-white overflow-y-auto flex flex-col">
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Describe your view</h3>
+              <InterfaceBuilder appId={appId} onGenerated={handleGenerated} />
+            </div>
+
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Persona presets</h3>
+              <PersonaSelector appId={appId} onSelect={handlePresetSelect} />
+            </div>
+
+            <div className="p-4 flex-1">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Version history</h3>
+              <VersionHistory
+                history={history}
+                currentSpec={current}
+                onRestore={restoreVersion}
+              />
+            </div>
+          </aside>
         )}
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-        {!loading && !error && (
-          <ViewRenderer spec={spec} items={items} registry={registry} />
-        )}
-      </main>
+      </div>
     </div>
   );
 }
