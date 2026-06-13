@@ -1,9 +1,11 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie,
 } from 'recharts';
-import { BarChart3, PieChart as PieIcon, TrendingUp } from 'lucide-react';
+import { BarChart3, Sparkles } from 'lucide-react';
+import type { BaseViewSpec, FilterClause } from '@dsi/shared';
 import { useApp } from '../context/AppContext';
+import { AiChatDrawer, AiResetButton } from '../components/ai/AiChatDrawer';
 
 const PALETTE = [
   '#6366f1', '#3b82f6', '#10b981', '#f59e0b',
@@ -11,197 +13,190 @@ const PALETTE = [
   '#84cc16', '#ec4899',
 ];
 
+function applyFilters(items: ReturnType<typeof useApp>['items'], filters: FilterClause[]) {
+  return items.filter((item) =>
+    filters.every((f) => {
+      const val = item[f.field];
+      if (f.op === 'eq')       return String(val ?? '') === String(f.value);
+      if (f.op === 'neq')      return String(val ?? '') !== String(f.value);
+      if (f.op === 'contains') return String(val ?? '').toLowerCase().includes(String(f.value).toLowerCase());
+      if (f.op === 'in')       return Array.isArray(f.value) ? f.value.includes(String(val)) : String(val) === String(f.value);
+      return true;
+    })
+  );
+}
+
 export function AnalyticsPage() {
-  const { items, vocabulary, loading } = useApp();
+  const { appId, items, vocabulary, loading } = useApp();
+  const [chatOpen, setChatOpen] = useState(false);
+  const [aiSpec, setAiSpec]     = useState<BaseViewSpec | null>(null);
 
-  // All groupable fields to chart
+  // Determine which fields to chart — AI spec can narrow this
   const groupableFields = useMemo(() => {
-    return vocabulary?.fields.filter((f) => f.groupable) ?? [];
-  }, [vocabulary]);
+    const all = vocabulary?.fields.filter((f) => f.groupable) ?? [];
+    if (!aiSpec) return all;
+    // If AI spec specifies visible fields, only chart those that are groupable
+    const specKeys = new Set(aiSpec.fields.filter((f) => f.visible !== false).map((f) => f.key));
+    const narrowed = all.filter((f) => specKeys.has(f.key));
+    return narrowed.length > 0 ? narrowed : all;
+  }, [vocabulary, aiSpec]);
 
-  // Build distribution data per groupable field
+  // Items filtered by AI spec
+  const chartItems = useMemo(() => {
+    let result = items;
+    if (aiSpec?.filters?.length) result = applyFilters(result, aiSpec.filters);
+    if (aiSpec?.limit)           result = result.slice(0, aiSpec.limit);
+    return result;
+  }, [items, aiSpec]);
+
   const distributions = useMemo(() => {
     return groupableFields.map((field) => {
       const counts: Record<string, number> = {};
-      for (const item of items) {
+      for (const item of chartItems) {
         const raw = item[field.key];
         const vals = Array.isArray(raw) ? raw : [raw ?? '(none)'];
-        for (const v of vals) {
-          const key = String(v);
-          counts[key] = (counts[key] ?? 0) + 1;
-        }
+        for (const v of vals) { const k = String(v); counts[k] = (counts[k] ?? 0) + 1; }
       }
-      const data = Object.entries(counts)
-        .sort((a, b) => b[1] - a[1])
-        .map(([name, value]) => ({ name, value }));
+      const data = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
       return { field, data };
     });
-  }, [groupableFields, items]);
+  }, [groupableFields, chartItems]);
 
-  // Summary stats
-  const summary = useMemo(() => {
-    if (items.length === 0) return [];
-    const stats: { label: string; value: string }[] = [
-      { label: 'Total items', value: String(items.length) },
-    ];
-    // Add top value per groupable field
-    for (const { field, data } of distributions) {
-      if (data[0]) {
-        stats.push({
-          label: `Most common ${field.description ?? field.key}`,
-          value: `${data[0].name} (${data[0].value})`,
-        });
-      }
-    }
-    return stats;
-  }, [items, distributions]);
-
-  if (loading) {
-    return <div className="text-sm text-gray-400 py-12 text-center">Loading data…</div>;
-  }
-
-  if (groupableFields.length === 0) {
-    return (
-      <div className="p-8 text-center text-sm text-gray-400">
-        No groupable fields configured for this domain.
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="h-full flex items-center justify-center text-sm text-gray-400">Loading data…</div>
+  );
 
   return (
-    <div className="p-6 max-w-7xl space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-          <BarChart3 size={20} className="text-indigo-500" />
-          Analytics
-        </h1>
-        <p className="text-sm text-gray-400 mt-1">{items.length} items across {groupableFields.length} dimensions</p>
-      </div>
+    <div className="flex h-full overflow-hidden">
 
-      {/* Summary stat strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {summary.slice(0, 4).map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-400 uppercase tracking-wide truncate">{s.label}</p>
-            <p className="text-lg font-bold text-gray-900 mt-1 truncate">{s.value}</p>
+      {/* Main analytics area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex-shrink-0 bg-white border-b border-gray-100 px-5 py-2.5 flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <BarChart3 size={15} className="text-indigo-500" />
+            <span className="text-sm font-semibold text-gray-700">Analytics</span>
+            {aiSpec && (
+              <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                AI: {aiSpec.name ?? 'custom view'}
+              </span>
+            )}
           </div>
-        ))}
-      </div>
+          <span className="text-xs text-gray-400">{chartItems.length} items · {groupableFields.length} dimensions</span>
+          <div className="ml-auto flex items-center gap-2">
+            {aiSpec && <AiResetButton onClick={() => setAiSpec(null)} />}
+            <button
+              onClick={() => setChatOpen((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${chatOpen ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-100'}`}
+            >
+              <Sparkles size={12} /> AI
+            </button>
+          </div>
+        </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {distributions.map(({ field, data }, idx) => (
-          <ChartCard
-            key={field.key}
-            title={`By ${field.description ?? field.key}`}
-            data={data}
-            colorOffset={idx * 3}
-          />
-        ))}
-      </div>
-
-      {/* Pie breakdown for first groupable field */}
-      {distributions[0] && distributions[0].data.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-5">
-            <PieIcon size={15} className="text-indigo-500" />
-            Distribution — {distributions[0].field.description ?? distributions[0].field.key}
-          </h2>
-          <div className="flex flex-col md:flex-row items-center gap-6">
-            <ResponsiveContainer width={260} height={220}>
-              <PieChart>
-                <Pie
-                  data={distributions[0].data}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={90}
-                  innerRadius={50}
-                  paddingAngle={2}
-                >
-                  {distributions[0].data.map((_, i) => (
-                    <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v: number) => [`${v} items`, '']} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex flex-col gap-2 flex-1">
-              {distributions[0].data.map((d, i) => {
-                const pct = Math.round((d.value / items.length) * 100);
-                return (
-                  <div key={d.name} className="flex items-center gap-3">
-                    <span
-                      className="flex-shrink-0 w-3 h-3 rounded-full"
-                      style={{ background: PALETTE[i % PALETTE.length] }}
-                    />
-                    <span className="text-sm text-gray-700 capitalize flex-1 truncate">{d.name}</span>
-                    <span className="text-xs text-gray-400 w-12 text-right">{d.value} · {pct}%</span>
-                  </div>
-                );
-              })}
+        {/* Charts — scrollable */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {groupableFields.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-sm text-gray-400">
+              No groupable fields for this domain.
             </div>
-          </div>
-        </div>
-      )}
+          ) : (
+            <>
+              {/* Summary strip */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <p className="text-xs text-gray-400 uppercase tracking-wide">Total items</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{chartItems.length}</p>
+                </div>
+                {distributions.slice(0, 3).map(({ field, data }) => data[0] && (
+                  <div key={field.key} className="bg-white rounded-xl border border-gray-200 p-4">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide truncate">
+                      Top {field.description ?? field.key}
+                    </p>
+                    <p className="text-lg font-bold text-gray-900 mt-1 truncate capitalize">
+                      {data[0].name} <span className="text-sm font-normal text-gray-400">({data[0].value})</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
 
-      {/* Trend note */}
-      <div className="bg-indigo-50 rounded-xl border border-indigo-100 p-4 flex items-start gap-3">
-        <TrendingUp size={16} className="text-indigo-500 mt-0.5 flex-shrink-0" />
-        <div>
-          <p className="text-sm font-medium text-indigo-800">Live data</p>
-          <p className="text-xs text-indigo-600 mt-0.5">
-            Charts update in real-time as items change via the live WebSocket connection.
-            Switch domains in the sidebar to compare analytics across teams.
-          </p>
+              {/* Bar charts grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {distributions.map(({ field, data }, idx) => (
+                  <ChartCard key={field.key} title={`By ${field.description ?? field.key}`} data={data} colorOffset={idx * 3} />
+                ))}
+              </div>
+
+              {/* Pie for first field */}
+              {distributions[0] && distributions[0].data.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <h2 className="text-sm font-semibold text-gray-700 mb-5 capitalize">
+                    Distribution — {distributions[0].field.description ?? distributions[0].field.key}
+                  </h2>
+                  <div className="flex flex-col md:flex-row items-center gap-6">
+                    <ResponsiveContainer width={240} height={200}>
+                      <PieChart>
+                        <Pie data={distributions[0].data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={88} innerRadius={48} paddingAngle={2}>
+                          {distributions[0].data.map((_, i) => (
+                            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: number) => [`${v} items`, '']} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="flex flex-col gap-2 flex-1">
+                      {distributions[0].data.map((d, i) => {
+                        const pct = Math.round((d.value / chartItems.length) * 100);
+                        return (
+                          <div key={d.name} className="flex items-center gap-3">
+                            <span className="flex-shrink-0 w-2.5 h-2.5 rounded-full" style={{ background: PALETTE[i % PALETTE.length] }} />
+                            <span className="text-sm text-gray-700 capitalize flex-1 truncate">{d.name}</span>
+                            <span className="text-xs text-gray-400 w-16 text-right">{d.value} · {pct}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
+
+      {/* AI chat drawer */}
+      {chatOpen && (
+        <AiChatDrawer
+          appId={appId}
+          tabHint="analytics charts"
+          placeholder='e.g. "focus on priority breakdown" · "only in-progress items"'
+          onSpec={(spec) => setAiSpec(spec)}
+          onClose={() => setChatOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
-function ChartCard({
-  title, data, colorOffset,
-}: {
-  title: string;
-  data: { name: string; value: number }[];
-  colorOffset: number;
-}) {
+function ChartCard({ title, data, colorOffset }: { title: string; data: { name: string; value: number }[]; colorOffset: number }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5">
       <h2 className="text-sm font-semibold text-gray-700 mb-4 capitalize">{title}</h2>
-      {data.length === 0 ? (
-        <p className="text-xs text-gray-400 text-center py-8">No data</p>
-      ) : (
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={data} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-            <XAxis
-              dataKey="name"
-              tick={{ fontSize: 11, fill: '#9ca3af' }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: '#9ca3af' }}
-              axisLine={false}
-              tickLine={false}
-              width={28}
-            />
-            <Tooltip
-              cursor={{ fill: '#f3f4f6' }}
-              contentStyle={{ fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 8 }}
-              formatter={(v: number) => [v, 'items']}
-            />
-            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-              {data.map((_, i) => (
-                <Cell key={i} fill={PALETTE[(i + colorOffset) % PALETTE.length]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      )}
+      {data.length === 0
+        ? <p className="text-xs text-gray-400 text-center py-8">No data</p>
+        : (
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={data} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={26} />
+              <Tooltip cursor={{ fill: '#f3f4f6' }} contentStyle={{ fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 8 }} formatter={(v: number) => [v, 'items']} />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                {data.map((_, i) => <Cell key={i} fill={PALETTE[(i + colorOffset) % PALETTE.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )
+      }
     </div>
   );
 }

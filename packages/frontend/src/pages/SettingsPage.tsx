@@ -19,7 +19,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-3xl space-y-6">
+    <div className="h-full overflow-y-auto"><div className="p-6 max-w-3xl space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -190,7 +190,7 @@ export function SettingsPage() {
           />
         </div>
       </Section>
-    </div>
+    </div></div>
   );
 }
 

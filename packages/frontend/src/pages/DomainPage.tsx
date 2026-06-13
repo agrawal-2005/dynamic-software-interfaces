@@ -1,22 +1,20 @@
 import { useEffect } from 'react';
 import { useParams, NavLink, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Eye, Table2, BarChart3, Settings } from 'lucide-react';
+import { LayoutDashboard, Table2, BarChart3, Settings } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { DashboardPage } from './DashboardPage';
-import { ViewPage }      from './ViewPage';
 import { ExplorerPage }  from './ExplorerPage';
 import { AnalyticsPage } from './AnalyticsPage';
 import { SettingsPage }  from './SettingsPage';
 
 const TABS = [
   { path: '',          label: 'Dashboard', icon: LayoutDashboard },
-  { path: 'view',      label: 'My View',   icon: Eye             },
   { path: 'explorer',  label: 'Explorer',  icon: Table2          },
   { path: 'analytics', label: 'Analytics', icon: BarChart3       },
   { path: 'settings',  label: 'Settings',  icon: Settings        },
 ];
 
-const DOMAIN_COLORS: Record<string, string> = {
+const DOMAIN_ACCENT: Record<string, string> = {
   engineering: 'text-violet-500',
   product:     'text-blue-500',
   finance:     'text-emerald-500',
@@ -27,33 +25,28 @@ export function DomainPage() {
   const { setAppId } = useApp();
   const location = useLocation();
 
-  // Sync URL-derived appId into context
   useEffect(() => {
     setAppId(appId);
   }, [appId, setAppId]);
 
-  const label = appId.charAt(0).toUpperCase() + appId.slice(1);
-  const accentColor = DOMAIN_COLORS[appId] ?? 'text-indigo-500';
+  const label  = appId.charAt(0).toUpperCase() + appId.slice(1);
+  const accent = DOMAIN_ACCENT[appId] ?? 'text-indigo-500';
 
-  // Detect active tab from current path
+  // Derive active sub-path from URL
   const subPath = location.pathname.replace(`/${appId}`, '').replace(/^\//, '');
-  const activeTabPath = subPath.split('/')[0] ?? '';
+  const activeTab = subPath.split('/')[0] ?? '';
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
 
-      {/* Domain header + horizontal tab bar */}
+      {/* Domain name + horizontal tab bar */}
       <div className="flex-shrink-0 bg-white border-b border-gray-100">
         <div className="px-6 pt-4">
-          {/* Workspace label */}
-          <p className={`text-xs font-semibold uppercase tracking-widest ${accentColor} mb-0.5`}>
-            {label}
-          </p>
+          <p className={`text-[11px] font-bold uppercase tracking-widest ${accent}`}>{label}</p>
 
-          {/* Tab bar */}
-          <div className="flex items-center gap-0.5 -mb-px mt-3">
+          <div className="flex items-center gap-0.5 mt-3 -mb-px">
             {TABS.map(({ path, label: tabLabel, icon: Icon }) => {
-              const isActive = path === activeTabPath;
+              const isActive = path === activeTab;
               return (
                 <NavLink
                   key={path}
@@ -75,15 +68,14 @@ export function DomainPage() {
         </div>
       </div>
 
-      {/* Tab content */}
+      {/* Tab content — fills remaining height */}
       <div className="flex-1 overflow-hidden">
         <Routes>
-          <Route index       element={<DashboardPage />} />
-          <Route path="view"      element={<ViewPage />}      />
+          <Route index            element={<DashboardPage />} />
           <Route path="explorer"  element={<ExplorerPage />}  />
           <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="settings"  element={<SettingsPage />}  />
-          <Route path="*"    element={<Navigate to={`/${appId}`} replace />} />
+          <Route path="*"         element={<Navigate to={`/${appId}`} replace />} />
         </Routes>
       </div>
     </div>
