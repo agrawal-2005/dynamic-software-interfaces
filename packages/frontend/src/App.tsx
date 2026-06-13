@@ -1,11 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { AppShell }   from './components/layout/AppShell';
-import { DashboardPage } from './pages/DashboardPage';
-import { ViewPage }      from './pages/ViewPage';
-import { ExplorerPage }  from './pages/ExplorerPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { SettingsPage }  from './pages/SettingsPage';
+import { DomainPage } from './pages/DomainPage';
 
 export default function App() {
   return (
@@ -13,12 +9,8 @@ export default function App() {
       <AppProvider>
         <AppShell>
           <Routes>
-            <Route path="/"          element={<DashboardPage />} />
-            <Route path="/view"      element={<ViewPage />} />
-            <Route path="/explorer"  element={<ExplorerPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/settings"  element={<SettingsPage />} />
-            <Route path="*"          element={<Navigate to="/" replace />} />
+            <Route path="/:appId/*" element={<DomainPage />} />
+            <Route path="*"         element={<Navigate to="/engineering" replace />} />
           </Routes>
         </AppShell>
       </AppProvider>
