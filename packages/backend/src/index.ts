@@ -1,6 +1,8 @@
 import express from 'express';
+import { createServer } from 'http';
 import { config } from './config';
 import { buildAppRegistry } from './app/app-registry';
+import { LiveChannel } from './engine/live-channel';
 import { appsRouter } from './routes/apps';
 import { schemaRouter } from './routes/schema';
 import { itemsRouter } from './routes/items';
@@ -22,17 +24,29 @@ const registry = buildAppRegistry();
 const domainIds = Object.keys(registry);
 console.log(`Registered domains: ${domainIds.join(', ')}`);
 
+// LiveChannel: one instance manages all domains' WebSocket rooms.
+const liveChannel = new LiveChannel();
+for (const bundle of Object.values(registry)) {
+  liveChannel.attachStore(bundle.id, bundle.store);
+}
+
 // Routes
 app.use('/api/apps',   appsRouter(registry));
 app.use('/api/schema', schemaRouter(registry));
 app.use('/api/items',  itemsRouter(registry));
 
-// Placeholder acknowledged by Step 4 (LiveChannel) and Step 5 (agent)
-app.get('/api/health', (_req, res) => res.json({ ok: true, domains: domainIds }));
-
-const server = app.listen(config.port, () => {
-  console.log(`Backend listening on http://localhost:${config.port}`);
+app.get('/api/health', (_req, res) => {
+  const connections = Object.fromEntries(
+    domainIds.map((id) => [id, liveChannel.connectionCount(id)]),
+  );
+  res.json({ ok: true, domains: domainIds, connections });
 });
 
-// LiveChannel will attach to this server in Step 4
-export { server };
+// Wrap Express in a plain http.Server so LiveChannel can share the port.
+const server = createServer(app);
+liveChannel.attach(server);
+
+server.listen(config.port, () => {
+  console.log(`Backend listening on http://localhost:${config.port}`);
+  console.log(`WebSocket live channel ready at ws://localhost:${config.port}/live?app=<id>`);
+});
