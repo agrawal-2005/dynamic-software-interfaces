@@ -126,49 +126,6 @@ export function DashboardPage() {
     setEditingCol(null);
   }
 
-  // ── Local command handler (called from AI chat before hitting the API) ──
-
-  function handleLocalCommand(text: string): string | null {
-    const cmd = text.trim().toLowerCase();
-
-    const hideMatch = cmd.match(/^(?:hide|remove|don'?t show|skip)\s+(.+)$/);
-    if (hideMatch) {
-      const col = allColumns.find(
-        (c) => c.displayName.toLowerCase().includes(hideMatch[1].trim()) || c.value.toLowerCase().includes(hideMatch[1].trim())
-      );
-      if (col) { hideColumn(col.value); return `Hidden "${col.displayName}" ✓`; }
-      return null; // no local match — let AI handle it
-    }
-
-    const showMatch = cmd.match(/^(?:show|restore|unhide)\s+(.+)$/);
-    if (showMatch) {
-      const match = hiddenList.find(
-        (c) => c.displayName.toLowerCase().includes(showMatch[1].trim()) || c.value.toLowerCase().includes(showMatch[1].trim())
-      );
-      if (match) { showColumn(match.value); return `Restored "${match.displayName}" ✓`; }
-      return null;
-    }
-
-    const renameMatch = cmd.match(/^rename\s+(.+?)\s+to\s+(.+)$/);
-    if (renameMatch) {
-      const [, from, to] = renameMatch;
-      const col = allColumns.find(
-        (c) => c.displayName.toLowerCase().includes(from.trim()) || c.value.toLowerCase().includes(from.trim())
-      );
-      if (col) {
-        setColAliases((p) => new Map([...p, [col.value, to.trim()]]));
-        return `Renamed "${col.displayName}" → "${to.trim()}" ✓`;
-      }
-      return null;
-    }
-
-    if (/^(?:reset|show all|restore all|clear)$/.test(cmd)) {
-      setHiddenCols(new Set()); setColAliases(new Map());
-      return 'All columns restored ✓';
-    }
-
-    return null; // not a local command — fall through to Gemini
-  }
 
   if (loading) return <div className="flex-1 flex items-center justify-center text-sm text-gray-400">Loading…</div>;
   if (error)   return <div className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
@@ -294,7 +251,6 @@ export function DashboardPage() {
           appId={appId}
           tabHint="kanban board"
           placeholder='e.g. "hide done" · "rename open to backlog" · "show only critical items"'
-          onLocalCommand={handleLocalCommand}
           onSpec={(spec) => { setAiSpec(spec); }}
           onClose={() => setChatOpen(false)}
         />

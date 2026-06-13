@@ -15,11 +15,9 @@ type Props = {
   placeholder?: string;
   onSpec: (spec: BaseViewSpec) => void;
   onClose: () => void;
-  /** Optional local command handler — return a feedback string if handled, null to fall through to AI. */
-  onLocalCommand?: (text: string) => string | null;
 };
 
-export function AiChatDrawer({ appId, tabHint, placeholder, onSpec, onClose, onLocalCommand }: Props) {
+export function AiChatDrawer({ appId, tabHint, placeholder, onSpec, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'init',
@@ -42,19 +40,6 @@ export function AiChatDrawer({ appId, tabHint, placeholder, onSpec, onClose, onL
 
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
-
-    // Try local command handler first (instant, no API call)
-    if (onLocalCommand) {
-      const localResult = onLocalCommand(text);
-      if (localResult !== null) {
-        setMessages((prev) => [
-          ...prev,
-          { id: `a-${Date.now()}`, role: 'assistant', content: localResult },
-        ]);
-        return;
-      }
-    }
-
     setLoading(true);
 
     try {
