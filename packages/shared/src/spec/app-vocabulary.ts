@@ -1,7 +1,6 @@
 /**
  * The contract every domain must satisfy to plug into the engine.
- * Both SpecValidator and SpecGenerator are constructed from this;
- * neither class contains any domain-specific strings.
+ * SpecValidator is constructed from this; it contains no domain-specific strings.
  */
 
 export interface AppFieldDef {

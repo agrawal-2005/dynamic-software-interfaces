@@ -37,7 +37,7 @@ export class SpecValidator {
     return { ok: false, errors };
   }
 
-  /** Throws ValidatorError on failure — used inside SpecGenerator. */
+  /** Throws ValidatorError on failure. */
   assert(raw: unknown): BaseViewSpec {
     const r = this.validate(raw);
     if (!r.ok) throw new ValidatorError(r.errors);
