@@ -1,4 +1,4 @@
-import type { AppVocabulary, BaseViewSpec, Item, SidebarSpec, GenerateRequest, GenerateResponse } from '@dsi/shared';
+import type { AppVocabulary, Item, GenerateRequest, GenerateResponse } from '@dsi/shared';
 
 const BASE = '/api';
 
@@ -27,36 +27,6 @@ export async function fetchItems(appId: string): Promise<Item[]> {
   if (!res.ok) throw new Error(`fetchItems failed: ${res.status}`);
   const data = await res.json() as { items: Item[] };
   return data.items;
-}
-
-// ── Agent ─────────────────────────────────────────────────────────────────
-
-export async function generateSidebarSpec(description: string, currentSpec?: SidebarSpec | null): Promise<SidebarSpec> {
-  const res = await fetch(`${BASE}/generate-sidebar-spec`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ description, ...(currentSpec ? { currentSpec } : {}) }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string };
-    throw new Error(body.error ?? `generate-sidebar-spec failed: ${res.status}`);
-  }
-  const data = await res.json() as { spec: SidebarSpec };
-  return data.spec;
-}
-
-export async function generateSpec(appId: string, description: string, currentSpec?: BaseViewSpec | null): Promise<BaseViewSpec> {
-  const res = await fetch(`${BASE}/generate-spec`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ appId, description, ...(currentSpec ? { currentSpec } : {}) }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string; details?: string[] };
-    throw new Error(body.error ?? `generate-spec failed: ${res.status}`);
-  }
-  const data = await res.json() as { spec: BaseViewSpec };
-  return data.spec;
 }
 
 /**

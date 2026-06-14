@@ -4,12 +4,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from './config';
 import { buildAppRegistry } from './app/app-registry';
 import { LiveChannel } from './engine/live-channel';
-import { SidebarGenerator } from './engine/sidebar-generator';
 import { appsRouter } from './routes/apps';
 import { schemaRouter } from './routes/schema';
 import { itemsRouter } from './routes/items';
-import { agentRouter } from './routes/agent';
-import { sidebarAgentRouter } from './routes/sidebar-agent';
 import { generateRouter } from './routes/generate';
 import { UnifiedGenerator } from './engine/unified-generator';
 
@@ -26,18 +23,16 @@ app.use((_req, res, next) => {
 
 // Build all domain bundles at startup.
 // Each domain gets its own DataStore; the engine classes are defined once.
-const registry = buildAppRegistry(config.geminiApiKey);
+const registry = buildAppRegistry();
 const domainIds = Object.keys(registry);
 console.log(`Registered domains: ${domainIds.join(', ')}`);
 
-// Sidebar generator — one instance, not per-domain.
-// Vocabulary is derived from the registry so it stays in sync automatically.
+// Sidebar vocabulary — derived from the registry so it stays in sync automatically.
 const sidebarVocab = {
   items: Object.values(registry).map((b) => ({ key: b.id, label: b.label })),
 };
-const geminiClient  = new GoogleGenerativeAI(config.geminiApiKey);
-const sidebarGen    = new SidebarGenerator(geminiClient, sidebarVocab);
-const unifiedGen    = new UnifiedGenerator(geminiClient);
+const geminiClient = new GoogleGenerativeAI(config.geminiApiKey);
+const unifiedGen   = new UnifiedGenerator(geminiClient);
 console.log(`Sidebar vocabulary: ${sidebarVocab.items.map((i) => i.key).join(', ')}`);
 
 // LiveChannel: one instance manages all domains' WebSocket rooms.
@@ -47,12 +42,10 @@ for (const bundle of Object.values(registry)) {
 }
 
 // Routes
-app.use('/api/apps',                  appsRouter(registry));
-app.use('/api/schema',               schemaRouter(registry));
-app.use('/api/items',                itemsRouter(registry));
-app.use('/api/generate-spec',         agentRouter(registry));
-app.use('/api/generate-sidebar-spec', sidebarAgentRouter(sidebarGen));
-app.use('/api/generate',              generateRouter(registry, sidebarVocab, unifiedGen));
+app.use('/api/apps',     appsRouter(registry));
+app.use('/api/schema',   schemaRouter(registry));
+app.use('/api/items',    itemsRouter(registry));
+app.use('/api/generate', generateRouter(registry, sidebarVocab, unifiedGen));
 
 app.get('/api/health', (_req, res) => {
   const connections = Object.fromEntries(

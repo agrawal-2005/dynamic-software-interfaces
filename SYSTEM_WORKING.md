@@ -18,6 +18,9 @@
 | `buildViewSpecSchema(vocab)` | `spec/view-spec.schema.ts` | Zod schema factory — derives a concrete schema from any vocabulary |
 | `SidebarSpec`, `SidebarNavItem`, `SidebarVocabulary`, `SidebarItemSpec` | `spec/sidebar-spec.types.ts` | Sidebar display spec types |
 | `buildSidebarSpecSchema(vocab)` | `spec/sidebar-spec.schema.ts` | Zod schema factory for sidebar specs |
+| `GenerateRequest` | `types/generate.ts` | Unified generate request: `{ message, appId, activeSurface, currentSpecs, forceSurface? }` |
+| `GenerateResponse` | `types/generate.ts` | Union: `{ status: "applied", targetSurface, spec, message }` \| `{ status: "needs_clarification", question, options }` |
+| `ClarificationOption` | `types/generate.ts` | `{ surface: string; label: string }` — one option in a `needs_clarification` response |
 
 ### Backend engine — `packages/backend/src/engine/` (domain-agnostic, defined once)
 
@@ -27,7 +30,9 @@
 | `SpecValidator` | `spec-validator.ts` | Constructed with a vocabulary; calls `buildViewSpecSchema()` once; `assert(raw)` throws `ValidatorError` if model output fails Zod |
 | `SpecGenerator` | `spec-generator.ts` | Calls Gemini 2.5 Flash with a vocabulary-derived system prompt; extracts JSON; calls `SpecValidator.assert()` |
 | `LiveChannel` | `live-channel.ts` | One WebSocket server; routes broadcasts to per-domain rooms; attaches to `DataStore` change events |
-| `SidebarGenerator` | `sidebar-generator.ts` | Singleton (not per-domain); generates `SidebarSpec` from Gemini; validates with `buildSidebarSpecSchema` |
+| `SidebarGenerator` | `sidebar-generator.ts` | Singleton (not per-domain); generates `SidebarSpec` from Gemini; validates with `buildSidebarSpecSchema`; used by legacy `/api/generate-sidebar-spec` route |
+| `UnifiedGenerator` | `unified-generator.ts` | Singleton; routes a message to the correct surface AND generates the spec in a single Gemini call; vocabulary-driven, no keyword heuristics |
+| `SurfaceContext` | `unified-generator.ts` | Interface passed to `UnifiedGenerator`: `{ id, label, purpose, vocabText, currentSpec }` — one per surface, built at request time |
 
 ### Backend app layer — `packages/backend/src/app/`
 
@@ -45,8 +50,9 @@
 | `apps.ts` | `GET /api/apps` | Returns domain list `{ apps: [{id, label}] }` |
 | `schema.ts` | `GET /api/schema?app=<id>` | Returns vocabulary for a domain |
 | `items.ts` | `GET /api/items?app=<id>[&filter=…][&sort=…][&limit=N]` | Read-only item query |
-| `agent.ts` | `POST /api/generate-spec` | Runs `SpecGenerator`, returns validated `BaseViewSpec` |
-| `sidebar-agent.ts` | `POST /api/generate-sidebar-spec` | Runs `SidebarGenerator`, returns validated `SidebarSpec` |
+| `agent.ts` | `POST /api/generate-spec` | Runs `SpecGenerator`, returns validated `BaseViewSpec` (legacy; not used by `GlobalChatPanel`) |
+| `sidebar-agent.ts` | `POST /api/generate-sidebar-spec` | Runs `SidebarGenerator`, returns validated `SidebarSpec` (legacy; not used by `GlobalChatPanel`) |
+| `generate.ts` | `POST /api/generate` | Unified endpoint: builds `SurfaceContext[]` from live registry, calls `UnifiedGenerator`, validates result, returns `applied` \| `needs_clarification` |
 
 ### Frontend engine — `packages/frontend/src/engine/` (domain-agnostic)
 
@@ -68,7 +74,7 @@
 | `useGlobalSpec(appId, section)` | same file | Per-surface spec accessor: `[spec, setSpec]` |
 | `useCurrentSection()` | `hooks/useCurrentSection.ts` | Derives section string (`dashboard`, `explorer`, `analytics`) from URL pathname |
 | `useLiveData(appId)` | `hooks/useLiveData.ts` | REST initial fetch + WebSocket subscription; auto-reconnects |
-| `GlobalChatPanel` | `components/ai/GlobalChatPanel.tsx` | Single shared chat UI; context-aware; routes to correct API; detects context changes |
+| `GlobalChatPanel` | `components/ai/GlobalChatPanel.tsx` | Single shared chat UI; sends all messages to `POST /api/generate`; renders `needs_clarification` as option buttons; applies spec returned by backend; no routing logic of its own |
 | `AppShell` | `components/layout/AppShell.tsx` | Root layout: Sidebar + content + GlobalChatPanel |
 | `Sidebar` | `components/layout/Sidebar.tsx` | Spec-driven nav; renders from `SidebarSpec` via `useGlobalSpec('global','sidebar')` |
 | `DomainPage`, `DashboardPage`, `ExplorerPage`, `AnalyticsPage`, `SettingsPage` | `pages/` | Per-section views; use `useGlobalSpec(appId, section)` |
@@ -97,6 +103,49 @@ Example: `{ apps: [{ id: "engineering", label: "Engineering" }, …] }`
 ### `GET /api/items?app=<id>`
 **Request:** query param `app=engineering`. No filters/sort/limit are sent by the frontend client (`fetchItems` only passes `app=`). The backend supports filter/sort/limit query params but `client.ts` does not use them — all item shaping is done client-side.  
 **Response:** `{ appId: string; count: number; items: Item[] }`
+
+---
+
+### `POST /api/generate`
+**Request body:**
+```json
+{
+  "message":       "hide Finance, show only critical bugs",
+  "appId":         "engineering",
+  "activeSurface": "dashboard",
+  "currentSpecs": {
+    "sidebar":   { "version": "1.0", "items": [{ "key": "engineering", "visible": true }, …] },
+    "dashboard": { "version": "1.0", "layout": "kanban", "fields": […], … }
+  },
+  "forceSurface": "sidebar"
+}
+```
+`forceSurface` is omitted on normal sends; it is set when the user picks an option after a `needs_clarification` response.  
+`currentSpecs` always includes `sidebar` and the key matching `activeSurface`; either may be `null` if no spec has been saved for that slot.
+
+**Response (applied):** `{ status: "applied", targetSurface: string, spec: BaseViewSpec | SidebarSpec, message: string }`  
+```json
+{
+  "status": "applied",
+  "targetSurface": "sidebar",
+  "spec": { "version": "1.0", "items": [{ "key": "finance", "visible": false }, …] },
+  "message": "Hid Finance from the sidebar"
+}
+```
+
+**Response (needs clarification):** `{ status: "needs_clarification", question: string, options: ClarificationOption[] }`  
+```json
+{
+  "status": "needs_clarification",
+  "question": "Do you want to hide 'Product' from the sidebar navigation, or filter the view to show only Product-type items?",
+  "options": [
+    { "surface": "sidebar", "label": "Hide Product from the sidebar navigation" },
+    { "surface": "view",    "label": "Filter the data view to Product items only" }
+  ]
+}
+```
+**Response (validation failure):** `422 { error: "AI returned an invalid SidebarSpec"|"AI returned an invalid ViewSpec", details: string[] }`  
+**Response (quota):** `500 { error: "AI rate limit hit — wait a few seconds and try again" }`
 
 ---
 
@@ -169,54 +218,65 @@ The frontend `useLiveData` validates `event.appId === activeAppId.current` befor
 
 ## 3. How requests flow
 
-### Generate-a-spec flow
+### Generate-a-spec flow (unified)
 
 ```
 1. User types in GlobalChatPanel input → presses Enter or Send
-   File: GlobalChatPanel.tsx → handleSend()
+   File: GlobalChatPanel.tsx → handleSend() → sendToBackend(message)
 
-2. Frontend reads current context:
+2. Frontend collects context — no routing decision:
    - appId from AppContext
    - activeSection from useCurrentSection() (URL) or sectionOverride
-   File: GlobalChatPanel.tsx lines 118–128
+   - currentSpecs: { sidebar: sidebarSpec, [activeSection]: getSpec(appId, activeSection) }
+   File: GlobalChatPanel.tsx → sendToBackend()
 
-3. Frontend reads current spec for (appId, section) from GlobalAiContext cache
-   File: GlobalAiContext.tsx → getSpec()
+3. Frontend calls generate() — single endpoint, all routing delegated:
+   POST /api/generate { message, appId, activeSurface, currentSpecs, forceSurface? }
+   File: api/client.ts → generate()
 
-4. If section === 'sidebar':
-     POST /api/generate-sidebar-spec  { description, currentSpec? }
-   Else:
-     POST /api/generate-spec  { appId, description: "…(for Dashboard view)", currentSpec? }
-   File: api/client.ts → generateSpec() / generateSidebarSpec()
+4. Backend route (generate.ts) builds SurfaceContext[] from live registry:
+   - sidebarCtx: vocab from sidebarVocab; current visibility from specs['sidebar']
+   - viewCtx: layouts + fields from bundle.vocabulary; current spec from specs[section]
+   File: routes/generate.ts
 
-5. Backend receives request → agent.ts or sidebar-agent.ts:
-   - Validates appId exists in registry (agent.ts line 28)
-   - Calls bundle.generator.generate(description, currentSpec) or sidebarGen.generate(...)
+5. UnifiedGenerator.generate() (unified-generator.ts):
+   - Single Gemini 2.5 Flash call (thinkingBudget: 0, maxOutputTokens: 2048, temperature: 0.1)
+   - System prompt lists all surface vocabularies with their current specs
+   - AI routes by vocabulary match (field keys, enum values, sidebar item keys/labels)
+   - Returns status="applied" { targetSurface, spec, message }
+          | status="needs_clarification" { question, options }
 
-6. SpecGenerator.generate() (spec-generator.ts):
-   - Builds system prompt entirely from AppVocabulary (buildSystemPrompt())
-   - If currentSpec present, prepends "CURRENT_SPEC:\n…\n\nINSTRUCTION: " to user text
-   - Calls Gemini 2.5 Flash (thinkingBudget: 0, maxOutputTokens: 1024, temperature: 0.1)
-   - Strips accidental markdown fences from response
-   - Calls SpecValidator.assert(raw) — throws ValidatorError on Zod failure
+6a. If needs_clarification:
+   - Route returns immediately: { status, question, options }
+   - GlobalChatPanel renders amber question bubble + indigo option buttons
+   - User clicks an option → sendToBackend(originalMessage, surface) with forceSurface set
+   - Loop restarts at step 3 with forceSurface; UnifiedGenerator skips conflict detection
 
-7. SpecValidator.assert() (spec-validator.ts):
-   - Runs the pre-built Zod schema (buildViewSpecSchema(vocab))
-   - Schema enforces: layout ∈ vocabulary layouts, field keys ∈ vocabulary fields,
+6b. If applied:
+   Spec validation runs before the route returns:
+   - targetSurface === 'sidebar': buildSidebarSpecSchema(sidebarVocab).parse(rawSpec)
+   - otherwise: bundle.validator.assert(rawSpec) — runs buildViewSpecSchema(vocab) Zod schema
+   Schema enforces: layout ∈ vocabulary layouts, field keys ∈ vocabulary fields,
      filter fields ∈ filterable fields, groupBy ∈ groupable fields, limit 1–200
-   - Layouts with requiresGroupBy:true must have groupBy present
-   - Returns validated BaseViewSpec or throws ValidatorError
+   An invalid spec returns 422 — never reaches the client.
+   File: routes/generate.ts; engine/unified-generator.ts; engine/spec-validator.ts
 
-8. Backend returns { appId, spec } (200) or error (422 / 500)
+7. Backend returns { status: "applied", targetSurface, spec, message }
 
-9. Frontend GlobalChatPanel receives spec:
-   - Calls setSpec(appId, section, newSpec) in GlobalAiContext
-   - setSpec: updates in-memory cache, writes to localStorage, pushes to specHistory
-   - setSpecVersion counter bumps → all useGlobalSpec consumers re-render
+8. GlobalChatPanel applies the spec to the surface the backend chose:
+   - targetSurface === 'sidebar': setSpec('global', 'sidebar', spec)
+   - otherwise: setSpec(appId, activeSection, spec)
+   File: GlobalChatPanel.tsx → sendToBackend()
+
+9. setSpec in GlobalAiContext:
+   - Updates in-memory cache (Map ref)
+   - Writes to localStorage
+   - Pushes to specHistory
+   - Bumps setSpecVersion counter → all useGlobalSpec consumers re-render
 
 10. Page component (DashboardPage etc.) re-renders:
     - useGlobalSpec returns the new spec
-    - Passes spec + items to existing logic (kanban groups, table columns, etc.)
+    - Passes spec + items to layout component (kanban groups, table columns, etc.)
     - ViewRenderer (when used) re-applies filters/sort/limit client-side and draws
 ```
 
@@ -357,6 +417,7 @@ There is no explicit intent-detection layer. The safety is structural: the model
 | SpecGenerator docstring says "gemini-2.0-flash" | Actual model string in code: `'gemini-2.5-flash'` (stale comment). |
 | "stored per user, per domain, per section" | **No userId in the prototype.** Storage key is `dsi:spec:${appId}:${section}` only. |
 | "`ISpecRepository`, `LocalStorageSpecRepository`, `SpecStore`" are active frontend engine classes | They **exist** in `frontend/src/engine/` but are **not used** by any page. Active spec storage is `GlobalAiContext` + raw localStorage reads. |
-| Section is part of the AI request context | Section is **not sent as a field** to the backend. It is appended as a suffix to the description string: `"show only high priority (for Explorer view)"`. |
-| Two GoogleGenerativeAI clients | `buildAppRegistry()` creates one client for all `SpecGenerator` instances. `index.ts` creates a **second separate client** for `SidebarGenerator`. Both use the same API key. |
+| Section is part of the AI request context | Section is sent as `activeSurface` field in `POST /api/generate`. In the legacy `/api/generate-spec`, section was appended as a suffix to the description string — that route is still present but no longer used by `GlobalChatPanel`. |
+| Frontend decides which API to call (sidebar vs view) | **Removed.** `GlobalChatPanel` previously used `isSidebarIntent()` keyword heuristics. Now it sends all messages to `POST /api/generate` and the backend routes by vocabulary match. |
+| Two GoogleGenerativeAI clients | `buildAppRegistry()` creates one client for all `SpecGenerator` instances. `index.ts` creates a **second separate client** for `SidebarGenerator` and a **third** for `UnifiedGenerator`. All use the same API key. |
 | `fetchItems` passes filters/sort | `client.ts` `fetchItems()` sends only `?app=<id>`. Server-side filtering capability exists but the frontend client never uses it. |

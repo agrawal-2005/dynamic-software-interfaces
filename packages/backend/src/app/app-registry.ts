@@ -1,8 +1,6 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { AppVocabulary, Item } from '@dsi/shared';
 import { DataStore } from '../engine/data-store';
 import { SpecValidator } from '../engine/spec-validator';
-import { SpecGenerator } from '../engine/spec-generator';
 
 // Domain vocabulary + seed imports
 import { ENGINEERING_VOCABULARY } from './domains/engineering/vocabulary';
@@ -19,7 +17,6 @@ export interface AppBundle {
   vocabulary: AppVocabulary;
   store: DataStore;
   validator: SpecValidator;
-  generator: SpecGenerator;
 }
 
 export type AppRegistry = Record<string, AppBundle>;
@@ -28,9 +25,7 @@ export type AppRegistry = Record<string, AppBundle>;
  * Build one AppBundle per domain config.
  * Called once at server startup. Adding a domain = one new entry in configs.
  */
-export function buildAppRegistry(geminiApiKey: string): AppRegistry {
-  const client = new GoogleGenerativeAI(geminiApiKey);
-
+export function buildAppRegistry(): AppRegistry {
   const configs: Array<{
     id: string;
     label: string;
@@ -46,8 +41,7 @@ export function buildAppRegistry(geminiApiKey: string): AppRegistry {
     configs.map(({ id, label, vocabulary, seed }) => {
       const store     = new DataStore(seed);
       const validator = new SpecValidator(vocabulary);
-      const generator = new SpecGenerator(client, validator, vocabulary);
-      return [id, { id, label, vocabulary, store, validator, generator }];
+      return [id, { id, label, vocabulary, store, validator }];
     }),
   );
 }
