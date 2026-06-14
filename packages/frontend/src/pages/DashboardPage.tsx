@@ -131,8 +131,8 @@ export function DashboardPage() {
     }
   }
 
-  if (loading) return <div className="flex-1 flex items-center justify-center text-sm text-gray-400">Loading…</div>;
-  if (error)   return <div className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
+  if (loading || !vocabulary) return <div className="flex-1 flex items-center justify-center text-sm text-gray-400">Loading…</div>;
+  if (error)                  return <div className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
 
   // Non-kanban AI spec → use ViewRenderer
   if (aiSpec && aiSpec.layout !== 'kanban') {

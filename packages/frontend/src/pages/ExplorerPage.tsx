@@ -177,10 +177,10 @@ export function ExplorerPage() {
         ) : (
           /* Data table */
           <div className="flex-1 overflow-auto">
-            {loading && <div className="text-sm text-gray-400 py-12 text-center">Loading…</div>}
+            {(loading || !vocabulary) && <div className="text-sm text-gray-400 py-12 text-center">Loading…</div>}
             {error && <div className="m-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
             {!loading && !error && (
-              <table className="w-full border-collapse text-sm">
+              <table className="min-w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50 sticky top-0 z-10">
                     {visibleCols.map((col) => (

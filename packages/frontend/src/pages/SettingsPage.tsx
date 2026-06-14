@@ -18,7 +18,10 @@ export function SettingsPage() {
   const [historyOpen, setHistoryOpen] = useState(true);
   const [, forceRender] = useState(0);
 
-  const allHistory = specHistory.getAll(appId);
+  // Only show view specs — nav specs have no layout/fields and should not appear here
+  const allHistory = specHistory.getAll(appId).filter(
+    (e) => e.tab !== 'nav' && e.spec.layout !== undefined,
+  );
 
   function handleRestore(entry: HistoryEntry) {
     specHistory.restoreTo(appId, entry.tab, entry);

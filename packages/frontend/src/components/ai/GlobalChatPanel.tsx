@@ -21,7 +21,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Send, Loader2, Bot, User, RotateCcw } from 'lucide-react';
-import type { BaseViewSpec, SidebarSpec, ClarificationOption } from '@dsi/shared';
+import type { BaseViewSpec, SidebarSpec, NavSpec, ClarificationOption } from '@dsi/shared';
 import { LogoMark } from '../LogoMark';
 import { useApp } from '../../context/AppContext';
 import { useGlobalAi, useGlobalSpec } from '../../context/GlobalAiContext';
@@ -79,8 +79,9 @@ export function GlobalChatPanel() {
   const activeSection                                         = sectionOverride ?? urlSection;
   const isReadOnly                                            = activeSection === 'settings';
 
-  // Access sidebar spec for sending as context
+  // Access sidebar + nav spec for sending as context
   const [sidebarSpec] = useGlobalSpec<SidebarSpec>('global', 'sidebar');
+  const [navSpec]     = useGlobalSpec<NavSpec>(appId, 'nav');
 
   const contextKey = activeSection === 'sidebar'
     ? `global:${activeSection}`
@@ -125,6 +126,7 @@ export function GlobalChatPanel() {
       // Collect current specs for all surfaces
       const currentSpecs: Record<string, unknown> = {
         sidebar: sidebarSpec ?? null,
+        nav:     navSpec ?? null,
         [activeSection]: getSpec(appId, activeSection) ?? null,
       };
 
@@ -157,7 +159,7 @@ export function GlobalChatPanel() {
       // targetAppId and targetSection are pre-computed by the backend so
       // the frontend makes no decisions based on surface names.
       const { targetAppId, targetSection, spec, message: confirmMsg } = response;
-      setSpec(targetAppId, targetSection, spec as BaseViewSpec | SidebarSpec);
+      setSpec(targetAppId, targetSection, spec as BaseViewSpec | SidebarSpec | NavSpec);
 
       setMessages((prev) => [
         ...prev,
@@ -175,7 +177,7 @@ export function GlobalChatPanel() {
     } finally {
       setLoading(false);
     }
-  }, [appId, activeSection, sidebarSpec, getSpec, setSpec]);
+  }, [appId, activeSection, sidebarSpec, navSpec, getSpec, setSpec]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -188,17 +190,20 @@ export function GlobalChatPanel() {
     await sendToBackend(text);
   }, [input, loading, isReadOnly, sendToBackend]);
 
-  // Called when user picks an option from a needs_clarification message
+  // Called when user picks an option from a needs_clarification message.
+  // Uses opt.hint (a specific actionable message) when available; falls back
+  // to originalMessage so the AI has the best possible context.
   const handleClarificationPick = useCallback(async (
     originalMessage: string,
     surface: string,
     optionLabel: string,
+    hint?: string,
   ) => {
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, role: 'user', content: optionLabel },
     ]);
-    await sendToBackend(originalMessage, surface);
+    await sendToBackend(hint ?? originalMessage, surface);
   }, [sendToBackend]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -221,6 +226,11 @@ export function GlobalChatPanel() {
   const hasSpec  = activeSection === 'sidebar'
     ? getSpec('global', 'sidebar') !== null
     : getSpec(appId, activeSection) !== null;
+
+  // Escape hatch: show banner when navbar or sidebar is hidden as a whole
+  const isNavbarHidden  = navSpec?.visible === false;
+  const isSidebarHidden = sidebarSpec?.visible === false;
+  const showEscapeHatch = isNavbarHidden || isSidebarHidden;
 
   return (
     <div className="flex flex-col w-[300px] flex-shrink-0 border-l border-gray-200 bg-white h-full">
@@ -252,6 +262,46 @@ export function GlobalChatPanel() {
         </div>
       </div>
 
+      {/* Escape hatch — restore hidden navbar / sidebar */}
+      {showEscapeHatch && (
+        <div className="flex-shrink-0 px-3 py-2 bg-amber-50 border-b border-amber-100">
+          <p className="text-[11px] font-medium text-amber-700 mb-1.5">Hidden surfaces:</p>
+          <div className="flex flex-col gap-1">
+            {isNavbarHidden && (
+              <button
+                onClick={() => {
+                  setSpec(appId, 'nav', { version: '1.0', visible: true, hiddenTabs: [] } as NavSpec);
+                  setMessages((prev) => [
+                    ...prev,
+                    { id: `r-nav-${Date.now()}`, role: 'assistant', content: 'Navbar restored.' },
+                  ]);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 bg-white border border-amber-200 rounded-lg hover:bg-amber-50 transition-colors text-left"
+              >
+                <RotateCcw size={10} />
+                Restore navbar
+              </button>
+            )}
+            {isSidebarHidden && (
+              <button
+                onClick={() => {
+                  const current = sidebarSpec;
+                  setSpec('global', 'sidebar', { ...(current ?? { version: '1.0', items: [] }), visible: true } as SidebarSpec);
+                  setMessages((prev) => [
+                    ...prev,
+                    { id: `r-sb-${Date.now()}`, role: 'assistant', content: 'Sidebar restored.' },
+                  ]);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 bg-white border border-amber-200 rounded-lg hover:bg-amber-50 transition-colors text-left"
+              >
+                <RotateCcw size={10} />
+                Restore sidebar
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.map((msg) => {
@@ -282,9 +332,9 @@ export function GlobalChatPanel() {
                   <div className="flex flex-col gap-1.5">
                     {options.map((opt) => (
                       <button
-                        key={opt.surface}
+                        key={opt.surface + (opt.hint ?? opt.label)}
                         disabled={loading}
-                        onClick={() => void handleClarificationPick(originalMessage, opt.surface, opt.label)}
+                        onClick={() => void handleClarificationPick(originalMessage, opt.surface, opt.label, opt.hint)}
                         className="text-left text-[12px] px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 transition-colors disabled:opacity-50"
                       >
                         {opt.label}

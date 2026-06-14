@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Sparkles, RotateCcw } from 'lucide-react';
 import { LogoMark } from '../LogoMark';
 import type { SidebarSpec } from '@dsi/shared';
@@ -26,12 +26,25 @@ const DOMAIN_COLORS: Record<string, string> = {
 export function Sidebar() {
   const { apps, connected } = useApp();
   const location = useLocation();
+  const navigate  = useNavigate();
   const [sidebarSpec, setSidebarSpec] = useGlobalSpec<SidebarSpec>('global', 'sidebar');
   const { openChat } = useGlobalAi();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('dsi:sidebar:collapsed') === 'true');
 
   // ── Render list: apply spec ordering + visibility ─────────────────────────
   const renderList = buildRenderList(apps, sidebarSpec);
+
+  // ── Redirect when the active workspace is hidden from the sidebar ─────────
+  useEffect(() => {
+    // Find which domain the current URL is inside
+    const activeApp = apps.find((a) => location.pathname.startsWith(`/${a.id}`));
+    if (!activeApp) return;
+    // If it is no longer in the visible render list, go to the first visible one
+    const stillVisible = renderList.some((item) => item.key === activeApp.id);
+    if (!stillVisible && renderList.length > 0) {
+      navigate(`/${renderList[0].key}`);
+    }
+  }, [renderList, location.pathname, apps, navigate]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 

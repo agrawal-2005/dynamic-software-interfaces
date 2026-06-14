@@ -20,6 +20,8 @@ export function buildSidebarSpecSchema(vocab: SidebarVocabulary) {
 
   return z.object({
     version: z.literal('1.0'),
+    /** false = hide the entire sidebar panel; true (default) = visible. */
+    visible: z.boolean().optional(),
     items: z
       .array(
         z.object({

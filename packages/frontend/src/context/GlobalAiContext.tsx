@@ -17,7 +17,7 @@ import {
   createContext, useContext, useRef, useState, useCallback,
   type ReactNode,
 } from 'react';
-import type { BaseViewSpec, SidebarSpec } from '@dsi/shared';
+import type { BaseViewSpec, SidebarSpec, NavSpec } from '@dsi/shared';
 import { specHistory } from '../engine/spec-history';
 
 // ── Storage key mapping ───────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ function storageKey(appId: string, section: string): string {
 
 // ── Context type ─────────────────────────────────────────────────────────────
 
-export type AnySpec = BaseViewSpec | SidebarSpec;
+export type AnySpec = BaseViewSpec | SidebarSpec | NavSpec;
 
 interface GlobalAiContextValue {
   // Spec store
@@ -84,8 +84,8 @@ export function GlobalAiProvider({ children }: { children: ReactNode }) {
       else localStorage.setItem(lsKey, JSON.stringify(spec));
     } catch { /* quota */ }
 
-    // Push to history (view specs only, not sidebar)
-    if (spec !== null && section !== 'sidebar') {
+    // Push to history (view specs only — not sidebar or nav)
+    if (spec !== null && section !== 'sidebar' && section !== 'nav') {
       specHistory.push(appId, section, spec as BaseViewSpec);
     }
 

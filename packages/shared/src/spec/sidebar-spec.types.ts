@@ -31,5 +31,10 @@ export interface SidebarItemSpec {
  */
 export interface SidebarSpec {
   version: '1.0';
+  /**
+   * false = collapse the ENTIRE sidebar panel (not rendered at all).
+   * Defaults to true. Set to true to restore after hiding.
+   */
+  visible?: boolean;
   items: SidebarItemSpec[];
 }

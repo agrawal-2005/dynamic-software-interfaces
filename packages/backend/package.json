@@ -6,7 +6,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:ai": "tsx src/scripts/prompt-battery.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -21,6 +23,7 @@
     "@types/node": "^20.14.0",
     "@types/ws": "^8.5.10",
     "tsx": "^4.15.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
   }
 }

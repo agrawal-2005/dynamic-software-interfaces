@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from './config';
 import { buildAppRegistry } from './app/app-registry';
+import { buildSurfaceRegistry } from './app/surface-registry';
 import { LiveChannel } from './engine/live-channel';
 import { appsRouter } from './routes/apps';
 import { schemaRouter } from './routes/schema';
@@ -21,31 +22,41 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Build all domain bundles at startup.
-// Each domain gets its own DataStore; the engine classes are defined once.
-const registry = buildAppRegistry();
+// ── Startup: build all registries once ──────────────────────────────────────
+
+// 1. App registry — one DataStore + SpecValidator per domain.
+const registry  = buildAppRegistry();
 const domainIds = Object.keys(registry);
 console.log(`Registered domains: ${domainIds.join(', ')}`);
 
-// Sidebar vocabulary — derived from the registry so it stays in sync automatically.
+// 2. Sidebar vocabulary — derived from the app registry so it stays in sync automatically.
+//    Passed to both the surface registry (vocab builder) and the generate route (Zod validation).
 const sidebarVocab = {
   items: Object.values(registry).map((b) => ({ key: b.id, label: b.label })),
 };
-const geminiClient = new GoogleGenerativeAI(config.geminiApiKey);
-const unifiedGen   = new UnifiedGenerator(geminiClient);
 console.log(`Sidebar vocabulary: ${sidebarVocab.items.map((i) => i.key).join(', ')}`);
 
-// LiveChannel: one instance manages all domains' WebSocket rooms.
+// 3. Surface registry — all customizable surface definitions, built once.
+//    Each SurfaceDef holds its static vocabulary; per-request work is only
+//    injecting the current spec via buildVocabText().
+const surfaceRegistry = buildSurfaceRegistry(sidebarVocab, registry);
+console.log(`Surface registry: sidebar, nav, views(${Object.keys(surfaceRegistry.views).join(', ')})`);
+
+// 4. AI client + generator — one instance for the lifetime of the server.
+const geminiClient = new GoogleGenerativeAI(config.geminiApiKey);
+const unifiedGen   = new UnifiedGenerator(geminiClient);
+
+// 5. LiveChannel: one instance manages all domains' WebSocket rooms.
 const liveChannel = new LiveChannel();
 for (const bundle of Object.values(registry)) {
   liveChannel.attachStore(bundle.id, bundle.store);
 }
 
-// Routes
+// ── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/apps',     appsRouter(registry));
 app.use('/api/schema',   schemaRouter(registry));
 app.use('/api/items',    itemsRouter(registry));
-app.use('/api/generate', generateRouter(registry, sidebarVocab, unifiedGen));
+app.use('/api/generate', generateRouter(registry, surfaceRegistry, sidebarVocab, unifiedGen));
 
 app.get('/api/health', (_req, res) => {
   const connections = Object.fromEntries(

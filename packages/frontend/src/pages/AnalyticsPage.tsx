@@ -48,7 +48,7 @@ export function AnalyticsPage() {
     });
   }, [groupableFields, chartItems]);
 
-  if (loading) return (
+  if (loading || !vocabulary) return (
     <div className="h-full flex items-center justify-center text-sm text-gray-400">Loading data…</div>
   );
 

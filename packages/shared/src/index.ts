@@ -10,3 +10,4 @@ export type { SidebarNavItem, SidebarVocabulary, SidebarItemSpec, SidebarSpec } 
 export { buildSidebarSpecSchema } from './spec/sidebar-spec.schema';
 export type { SidebarSpecSchema } from './spec/sidebar-spec.schema';
 export type { GenerateRequest, GenerateResponse, ClarificationOption } from './types/generate';
+export type { NavSpec } from './spec/nav-spec.types';

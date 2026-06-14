@@ -1,10 +1,21 @@
 import { Router } from 'express';
-import { ZodError } from 'zod';
+import { z, ZodError } from 'zod';
 import { buildSidebarSpecSchema } from '@dsi/shared';
 import type { SidebarVocabulary } from '@dsi/shared';
 import type { AppRegistry } from '../app/app-registry';
-import type { UnifiedGenerator, SurfaceContext } from '../engine/unified-generator';
+import type { SurfaceRegistry } from '../app/surface-registry';
+import { NAV_TABS } from '../app/surface-registry';
+import type { RequestContext } from '../app/surface-registry';
+import type { UnifiedGenerator } from '../engine/unified-generator';
 import { ValidatorError } from '../engine/spec-validator';
+
+// Zod schema for NavSpec validation — tab keys derived from the single source of truth.
+const navTabKeys = NAV_TABS.map((t) => t.key) as [string, ...string[]];
+const navSpecSchema = z.object({
+  version:    z.literal('1.0'),
+  visible:    z.boolean().optional(),
+  hiddenTabs: z.array(z.enum(navTabKeys)),
+});
 
 /**
  * POST /api/generate
@@ -15,21 +26,19 @@ import { ValidatorError } from '../engine/spec-validator';
  *   - current specs for all active surfaces
  *   - (optional) forceSurface — set after user resolves a needs_clarification
  *
- * The backend builds all surface vocabularies from the live app registry,
- * calls UnifiedGenerator (which routes and generates in one AI call),
- * validates the returned spec against the target surface's schema,
- * and returns one of:
+ * Surface contexts are assembled from pre-built SurfaceDefs in the SurfaceRegistry
+ * (defined once at startup). The route's only per-request work is injecting
+ * currentSpec into each def and forwarding to UnifiedGenerator.
  *
+ * Returns:
  *   { status: "applied",              targetSurface, spec, message }
  *   { status: "needs_clarification",  question, options }
- *
- * The frontend applies the spec to the returned surface — it makes no
- * routing decision of its own.
  */
 export function generateRouter(
-  registry: AppRegistry,
-  sidebarVocab: SidebarVocabulary,
-  unifiedGen: UnifiedGenerator,
+  registry:        AppRegistry,
+  surfaceRegistry: SurfaceRegistry,
+  sidebarVocab:    SidebarVocabulary,
+  unifiedGen:      UnifiedGenerator,
 ): Router {
   const router = Router();
 
@@ -61,84 +70,32 @@ export function generateRouter(
     const specs   = currentSpecs ?? {};
     const section = typeof activeSurface === 'string' && activeSurface ? activeSurface : 'dashboard';
 
-    // ── Build surface contexts from live app registry ────────────────────────
+    // ── Assemble surface contexts generically from the registry ─────────────
+    //
+    // surfaceRegistry.resolve() returns all surface definitions for this request.
+    // Each def knows its own spec key and label strategy — the route names nothing.
+    // Adding a new surface type requires only a change in surface-registry.ts.
 
-    // 1. Sidebar surface — vocabulary derived from the registry automatically
-    const sidebarSpec = specs['sidebar'] ?? null;
-    const sidebarItemLines = sidebarVocab.items.map((item) => {
-      const specItem = Array.isArray((sidebarSpec as any)?.items)
-        ? (sidebarSpec as any).items.find((s: any) => s.key === item.key)
-        : null;
-      const isVisible = specItem ? specItem.visible !== false : true;
-      const rename    = specItem?.label ? ` (renamed to "${specItem.label}")` : '';
-      return `  - key="${item.key}" defaultLabel="${item.label}" currently: ${isVisible ? 'visible' : 'hidden'}${rename}`;
+    const ctx: RequestContext = { appId, section };
+    const surfaces = surfaceRegistry.resolve(appId, section).map((def) => {
+      const spec = specs[def.specKey(ctx)] ?? null;
+      return {
+        id:                    def.id,
+        label:                 def.buildLabel?.(ctx) ?? def.label,
+        purpose:               def.purpose,
+        specSchema:            def.specSchema,
+        clarificationGuidance: def.clarificationGuidance,
+        vocabText:             def.buildVocabText(spec),
+        currentSpec:           spec,
+      };
     });
-
-    const sidebarCtx: SurfaceContext = {
-      id:      'sidebar',
-      label:   'Sidebar navigation',
-      purpose: 'Controls which workspace items appear in the left navigation panel. ' +
-               'hide/show = display only — no workspace or data is deleted.',
-      vocabText:
-        'Items (can be hidden, shown, renamed, or reordered):\n' +
-        sidebarItemLines.join('\n'),
-      currentSpec: sidebarSpec,
-      specSchema:
-        '{\n' +
-        '  "version": "1.0",\n' +
-        '  "items": [{ "key": "<item key>", "label": "<optional rename, omit if unchanged>", "visible": true|false }]\n' +
-        '}\n' +
-        'REQUIREMENT: every vocabulary item must appear in items[].',
-    };
-
-    // 2. View surface — active domain vocabulary
-    const { vocabulary: vocab, label: domainLabel } = bundle;
-
-    const layoutLines = vocab.layouts.map(
-      (l) => `  - "${l.name}": ${l.description}${l.requiresGroupBy ? ' (groupBy required)' : ''}`,
-    );
-
-    const fieldLines = vocab.fields.map((f) => {
-      const caps: string[] = [];
-      if (f.filterable) caps.push('filterable');
-      if (f.sortable)   caps.push('sortable');
-      if (f.groupable)  caps.push('groupable');
-      const vals  = f.enumValues ? ` enumValues=[${f.enumValues.join(', ')}]` : '';
-      const flags = caps.length  ? ` [${caps.join(', ')}]`                    : '';
-      return `  - key="${f.key}" type=${f.type}${vals} label="${f.description}"${flags}`;
-    });
-
-    const viewCtx: SurfaceContext = {
-      id:      'view',
-      label:   `${domainLabel} · ${section}`,
-      purpose: `Controls the data display in the ${domainLabel} workspace: ` +
-               'layout, filters, grouping, column visibility, sort order, and value display labels. ' +
-               'Filters hide data from the view only — underlying records are never modified.',
-      vocabText:
-        `Layouts:\n${layoutLines.join('\n')}\n\nFields:\n${fieldLines.join('\n')}`,
-      currentSpec: specs[section] ?? null,
-      specSchema:
-        '{\n' +
-        '  "version": "1.0",\n' +
-        '  "name": "<short label ≤80 chars>",\n' +
-        '  "layout": "<layout name>",\n' +
-        '  "fields": [{ "key": "<field key>", "label": "<optional rename>", "visible": true|false }],\n' +
-        '  "groupBy": "<groupable field key — omit if not needed>",\n' +
-        '  "filters": [{ "field": "<filterable key>", "op": "eq|neq|in|contains", "value": "<string or string[]>" }],\n' +
-        '  "sort": { "field": "<sortable key>", "direction": "asc|desc" },\n' +
-        '  "limit": 100,\n' +
-        '  "valueLabels": { "<fieldKey>": { "<rawValue>": "<display label ≤40 chars>" } }\n' +
-        '}\n' +
-        'If the surface has a currentSpec, treat it as the base and apply the message as\n' +
-        'an INCREMENTAL modification — carry forward everything not mentioned.',
-    };
 
     // ── Call unified generator ───────────────────────────────────────────────
     try {
       const result = await unifiedGen.generate(
         message.trim(),
         section,
-        [sidebarCtx, viewCtx],
+        surfaces,
         typeof forceSurface === 'string' ? forceSurface : undefined,
       );
 
@@ -160,22 +117,26 @@ export function generateRouter(
           const details = err instanceof ZodError
             ? err.errors.map((e) => `${e.path.join('.')}: ${e.message}`)
             : [String(err)];
-          res.status(422).json({
-            error: 'AI returned an invalid SidebarSpec',
-            details,
-          });
+          res.status(422).json({ error: 'AI returned an invalid SidebarSpec', details });
+          return;
+        }
+      } else if (targetSurface === 'nav') {
+        try {
+          validatedSpec = navSpecSchema.parse(rawSpec);
+        } catch (err) {
+          const details = err instanceof ZodError
+            ? err.errors.map((e) => `${e.path.join('.')}: ${e.message}`)
+            : [String(err)];
+          res.status(422).json({ error: 'AI returned an invalid NavSpec', details });
           return;
         }
       } else {
-        // view surface — use domain SpecValidator (built from AppVocabulary)
+        // view surface — domain SpecValidator (built from AppVocabulary)
         try {
           validatedSpec = bundle.validator.assert(rawSpec);
         } catch (err) {
           if (err instanceof ValidatorError) {
-            res.status(422).json({
-              error: 'AI returned an invalid ViewSpec',
-              details: err.errors,
-            });
+            res.status(422).json({ error: 'AI returned an invalid ViewSpec', details: err.errors });
             return;
           }
           throw err;
@@ -183,8 +144,10 @@ export function generateRouter(
       }
 
       // Compute storage coordinates so the frontend needs no surface-name knowledge.
-      const targetAppId     = targetSurface === 'sidebar' ? 'global' : appId;
-      const targetSection   = targetSurface === 'sidebar' ? 'sidebar' : section;
+      const targetAppId   = targetSurface === 'sidebar' ? 'global' : appId;
+      const targetSection = targetSurface === 'sidebar' ? 'sidebar'
+                          : targetSurface === 'nav'     ? 'nav'
+                          : section;
 
       res.json({
         status:        'applied',
@@ -196,14 +159,15 @@ export function generateRouter(
       });
     } catch (err) {
       console.error('[/api/generate] error:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      const isQuota =
-        msg.includes('429') ||
-        msg.toLowerCase().includes('quota') ||
-        msg.toLowerCase().includes('rate limit');
-      res.status(500).json({
+      const msg  = err instanceof Error ? err.message : String(err);
+      const lmsg = msg.toLowerCase();
+      const isQuota     = msg.includes('429') || lmsg.includes('quota') || lmsg.includes('rate limit');
+      const isTransient = msg.includes('503') || lmsg.includes('service unavailable') || lmsg.includes('high demand') || lmsg.includes('try again later');
+      res.status(isTransient ? 503 : 500).json({
         error: isQuota
           ? 'AI rate limit hit — wait a few seconds and try again'
+          : isTransient
+          ? 'Gemini is temporarily overloaded — please try again in a moment'
           : 'Internal error during generation',
       });
     }

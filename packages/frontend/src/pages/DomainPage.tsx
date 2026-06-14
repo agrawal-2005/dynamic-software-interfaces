@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
 import { useParams, NavLink, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Table2, BarChart3, Settings } from 'lucide-react';
+import { LayoutDashboard, Table2, BarChart3, Settings, RotateCcw } from 'lucide-react';
+import type { NavSpec } from '@dsi/shared';
 import { useApp } from '../context/AppContext';
+import { useGlobalSpec } from '../context/GlobalAiContext';
 import { DashboardPage } from './DashboardPage';
 import { ExplorerPage }  from './ExplorerPage';
 import { AnalyticsPage } from './AnalyticsPage';
@@ -24,6 +26,7 @@ export function DomainPage() {
   const { appId = 'engineering' } = useParams<{ appId: string }>();
   const { setAppId } = useApp();
   const location = useLocation();
+  const [navSpec, setNavSpec] = useGlobalSpec<NavSpec>(appId, 'nav');
 
   useEffect(() => {
     setAppId(appId);
@@ -36,16 +39,27 @@ export function DomainPage() {
   const subPath = location.pathname.replace(`/${appId}`, '').replace(/^\//, '');
   const activeTab = subPath.split('/')[0] ?? '';
 
+  // Whole-navbar visibility (distinct from individual tab hiding)
+  const navbarVisible = navSpec?.visible !== false;
+
+  // Filter tabs by nav spec
+  const hiddenTabs = new Set(navSpec?.hiddenTabs ?? []);
+  const visibleTabs = TABS.filter(({ path }) => {
+    const key = path === '' ? 'dashboard' : path;
+    return !hiddenTabs.has(key);
+  });
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
 
-      {/* Domain name + horizontal tab bar */}
+      {/* Domain name + horizontal tab bar — hidden as a whole when navSpec.visible === false */}
+      {navbarVisible && (
       <div className="flex-shrink-0 bg-white border-b border-gray-100">
         <div className="px-6 pt-4">
           <p className={`text-[11px] font-bold uppercase tracking-widest ${accent}`}>{label}</p>
 
           <div className="flex items-center gap-0.5 mt-3 -mb-px">
-            {TABS.map(({ path, label: tabLabel, icon: Icon }) => {
+            {visibleTabs.map(({ path, label: tabLabel, icon: Icon }) => {
               const isActive = path === activeTab;
               return (
                 <NavLink
@@ -64,9 +78,22 @@ export function DomainPage() {
                 </NavLink>
               );
             })}
+
+            {/* Restore button — only shown when individual tabs are hidden */}
+            {hiddenTabs.size > 0 && (
+              <button
+                onClick={() => setNavSpec(null)}
+                title={`${hiddenTabs.size} tab${hiddenTabs.size > 1 ? 's' : ''} hidden — click to restore all`}
+                className="ml-1 mb-px flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 border border-amber-200 rounded-lg transition-colors"
+              >
+                <RotateCcw size={10} />
+                {hiddenTabs.size} hidden
+              </button>
+            )}
           </div>
         </div>
       </div>
+      )}
 
       {/* Tab content — fills remaining height */}
       <div className="flex-1 overflow-hidden">

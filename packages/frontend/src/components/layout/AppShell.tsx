@@ -1,7 +1,8 @@
 import { type ReactNode } from 'react';
 import { Sparkles } from 'lucide-react';
+import type { SidebarSpec } from '@dsi/shared';
 import { Sidebar } from './Sidebar';
-import { GlobalAiProvider, useGlobalAi } from '../../context/GlobalAiContext';
+import { GlobalAiProvider, useGlobalAi, useGlobalSpec } from '../../context/GlobalAiContext';
 import { GlobalChatPanel } from '../ai/GlobalChatPanel';
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -14,10 +15,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 function AppShellContent({ children }: { children: ReactNode }) {
   const { isChatOpen, openChat } = useGlobalAi();
+  const [sidebarSpec] = useGlobalSpec<SidebarSpec>('global', 'sidebar');
+  const isSidebarVisible = sidebarSpec?.visible !== false;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <Sidebar />
+      {isSidebarVisible && <Sidebar />}
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 overflow-hidden">
           {children}

@@ -41,8 +41,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Cancel the previous fetch if appId changes before it resolves.
+    // Without this, a slow Engineering fetch arriving after a fast Product
+    // fetch would overwrite the correct Product vocabulary.
+    let cancelled = false;
     setVocabulary(null);
-    fetchSchema(appId).then(setVocabulary).catch(console.error);
+    fetchSchema(appId)
+      .then((v) => { if (!cancelled) setVocabulary(v); })
+      .catch(console.error);
+    return () => { cancelled = true; };
   }, [appId]);
 
   return (

@@ -12,6 +12,14 @@ export interface ClarificationOption {
   surface: string;
   /** Plain-English description of what this option does — shown as a button label. */
   label: string;
+  /**
+   * The exact message to re-send when the user picks this option.
+   * When present, this replaces the original vague message so the AI has
+   * enough context to act immediately (e.g. "Hide Finance from the sidebar"
+   * instead of the original "hide").
+   * Omit when the option itself is still underspecified.
+   */
+  hint?: string;
 }
 
 /**

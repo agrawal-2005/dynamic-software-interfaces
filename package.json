@@ -6,7 +6,9 @@
     "dev:backend": "pnpm --filter @dsi/backend dev",
     "dev:frontend": "pnpm --filter @dsi/frontend dev",
     "build": "pnpm --filter @dsi/shared build && pnpm --filter @dsi/backend build && pnpm --filter @dsi/frontend build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @dsi/backend test",
+    "test:ai": "pnpm --filter @dsi/backend test:ai"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

@@ -56,7 +56,14 @@ function CellValue({ value, fieldKey, vl }: { value: unknown; fieldKey: string; 
       </div>
     );
   }
-  return <span>{display(vl, fieldKey, String(value))}</span>;
+  const str = String(value);
+  // Format ISO timestamps (fields like updatedAt, createdAt, dueDate, etc.)
+  if ((fieldKey.includes('At') || fieldKey.toLowerCase().includes('date')) && str.includes('T')) {
+    try {
+      return <span className="text-gray-500">{new Date(str).toLocaleDateString()}</span>;
+    } catch { /* fall through */ }
+  }
+  return <span>{display(vl, fieldKey, str)}</span>;
 }
 
 function EmptyState({ message }: { message: string }) {
