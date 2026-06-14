@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Search, X, RotateCcw, Sparkles } from 'lucide-react';
-import type { Item, AppVocabulary, FilterClause, BaseViewSpec } from '@dsi/shared';
+import type { Item, AppVocabulary, BaseViewSpec } from '@dsi/shared';
 import { useApp } from '../context/AppContext';
-import { ViewRenderer } from '../engine/view-renderer';
+import { ViewRenderer, applySpec } from '../engine/view-renderer';
 import { sharedRegistry } from '../engine/shared-registry';
 import { useGlobalSpec } from '../context/GlobalAiContext';
 
@@ -36,18 +36,6 @@ const COL_ACCENT: Record<string, string> = {
   pending:       'border-t-amber-400',
 };
 
-function applyFilters(items: Item[], filters: FilterClause[]): Item[] {
-  return items.filter((item) =>
-    filters.every((f) => {
-      const val = item[f.field];
-      if (f.op === 'eq')       return String(val ?? '') === String(f.value);
-      if (f.op === 'neq')      return String(val ?? '') !== String(f.value);
-      if (f.op === 'contains') return String(val ?? '').toLowerCase().includes(String(f.value).toLowerCase());
-      if (f.op === 'in')       return Array.isArray(f.value) ? f.value.includes(String(val)) : String(val) === String(f.value);
-      return true;
-    })
-  );
-}
 
 export function DashboardPage() {
   const { appId, items, vocabulary, loading, error } = useApp();
@@ -66,12 +54,10 @@ export function DashboardPage() {
     return vocabulary?.fields.find((f) => f.groupable);
   }, [vocabulary, aiSpec]);
 
-  const baseItems = useMemo(() => {
-    let result = items;
-    if (aiSpec?.filters?.length) result = applyFilters(result, aiSpec.filters);
-    if (aiSpec?.limit)           result = result.slice(0, aiSpec.limit);
-    return result;
-  }, [items, aiSpec]);
+  const baseItems = useMemo(
+    () => (aiSpec ? applySpec(aiSpec, items) : items),
+    [items, aiSpec],
+  );
 
   const allColumns = useMemo(() => {
     if (!groupField) return [];

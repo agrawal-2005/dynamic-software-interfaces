@@ -1,11 +1,5 @@
 import type { LayoutProps } from '../../engine/layout-registry';
-import type { BaseViewSpec } from '@dsi/shared';
-
-type VL = BaseViewSpec['valueLabels'];
-
-function display(vl: VL, fieldKey: string, raw: string): string {
-  return vl?.[fieldKey]?.[raw] ?? raw;
-}
+import { type VL, display } from './layout-helpers';
 
 /** Renders visible fields as a sortable table. Column headings use the
  *  spec's optional per-user label, falling back to the field key.

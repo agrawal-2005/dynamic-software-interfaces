@@ -1,11 +1,5 @@
 import type { LayoutProps } from '../../engine/layout-registry';
-import type { BaseViewSpec } from '@dsi/shared';
-
-type VL = BaseViewSpec['valueLabels'];
-
-function display(vl: VL, fieldKey: string, raw: string): string {
-  return vl?.[fieldKey]?.[raw] ?? raw;
-}
+import { type VL, display } from './layout-helpers';
 
 /**
  * FeedLayout — renders items as a chronological activity stream.

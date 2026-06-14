@@ -34,7 +34,12 @@ export function ViewRenderer({ spec, items, registry }: Props) {
 
 // ── Client-side spec application ─────────────────────────────────────────
 
-function applySpec(spec: BaseViewSpec, items: Item[]): Item[] {
+/**
+ * Apply a view spec's filters, sort, and limit to an item list.
+ * Exported so pages with custom rendering (kanban, charts) can reuse this
+ * pipeline without reimplementing filter/sort/limit logic.
+ */
+export function applySpec(spec: BaseViewSpec, items: Item[]): Item[] {
   let result = [...items];
 
   if (spec.filters.length > 0) {

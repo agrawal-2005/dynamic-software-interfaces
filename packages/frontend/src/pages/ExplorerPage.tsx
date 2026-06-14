@@ -1,26 +1,12 @@
 import { useState, useMemo } from 'react';
 import { Search, SlidersHorizontal, Eye, EyeOff, X, Sparkles } from 'lucide-react';
-import type { FilterClause, BaseViewSpec } from '@dsi/shared';
+import type { BaseViewSpec } from '@dsi/shared';
 
 type VL = BaseViewSpec['valueLabels'];
 import { useApp } from '../context/AppContext';
-import { ViewRenderer } from '../engine/view-renderer';
+import { ViewRenderer, applySpec } from '../engine/view-renderer';
 import { sharedRegistry } from '../engine/shared-registry';
 import { useGlobalSpec } from '../context/GlobalAiContext';
-
-
-function applySpecFilters(items: ReturnType<typeof useApp>['items'], filters: FilterClause[]) {
-  return items.filter((item) =>
-    filters.every((f) => {
-      const val = item[f.field];
-      if (f.op === 'eq')       return String(val ?? '') === String(f.value);
-      if (f.op === 'neq')      return String(val ?? '') !== String(f.value);
-      if (f.op === 'contains') return String(val ?? '').toLowerCase().includes(String(f.value).toLowerCase());
-      if (f.op === 'in')       return Array.isArray(f.value) ? f.value.includes(String(val)) : String(val) === String(f.value);
-      return true;
-    })
-  );
-}
 
 export function ExplorerPage() {
   const { appId, items, vocabulary, loading, error } = useApp();
@@ -52,14 +38,12 @@ export function ExplorerPage() {
     return all.filter((f) => visibleKeys.has(f.key));
   }, [vocabulary, aiSpec]);
 
-  // Items after AI spec + manual filters + search
+  // Items after AI spec (filter+sort+limit) + manual search + manual dropdown filters
   const filtered = useMemo(() => {
-    let result = items;
+    // Apply AI spec pipeline (filter, sort, limit) via the shared engine utility.
+    let result = aiSpec ? applySpec(aiSpec, items) : items;
 
-    // Apply AI spec filters first
-    if (aiSpec?.filters?.length) result = applySpecFilters(result, aiSpec.filters);
-
-    // Manual search
+    // Manual search (applied after the spec so it narrows the spec-shaped result)
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((item) =>
@@ -76,17 +60,6 @@ export function ExplorerPage() {
         return String(v ?? '') === value;
       });
     }
-
-    if (aiSpec?.sort) {
-      const { field, direction } = aiSpec.sort;
-      result = [...result].sort((a, b) => {
-        const av = String(a[field] ?? '');
-        const bv = String(b[field] ?? '');
-        return direction === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-      });
-    }
-
-    if (aiSpec?.limit) result = result.slice(0, aiSpec.limit);
 
     return result;
   }, [items, aiSpec, search, filters, columns]);

@@ -3,9 +3,10 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie,
 } from 'recharts';
 import { BarChart3, Sparkles } from 'lucide-react';
-import type { FilterClause, BaseViewSpec } from '@dsi/shared';
+import type { BaseViewSpec } from '@dsi/shared';
 import { useApp } from '../context/AppContext';
 import { useGlobalSpec } from '../context/GlobalAiContext';
+import { applySpec } from '../engine/view-renderer';
 
 const PALETTE = [
   '#6366f1', '#3b82f6', '#10b981', '#f59e0b',
@@ -13,18 +14,6 @@ const PALETTE = [
   '#84cc16', '#ec4899',
 ];
 
-function applyFilters(items: ReturnType<typeof useApp>['items'], filters: FilterClause[]) {
-  return items.filter((item) =>
-    filters.every((f) => {
-      const val = item[f.field];
-      if (f.op === 'eq')       return String(val ?? '') === String(f.value);
-      if (f.op === 'neq')      return String(val ?? '') !== String(f.value);
-      if (f.op === 'contains') return String(val ?? '').toLowerCase().includes(String(f.value).toLowerCase());
-      if (f.op === 'in')       return Array.isArray(f.value) ? f.value.includes(String(val)) : String(val) === String(f.value);
-      return true;
-    })
-  );
-}
 
 export function AnalyticsPage() {
   const { appId, items, vocabulary, loading } = useApp();
@@ -41,12 +30,10 @@ export function AnalyticsPage() {
   }, [vocabulary, aiSpec]);
 
   // Items filtered by AI spec
-  const chartItems = useMemo(() => {
-    let result = items;
-    if (aiSpec?.filters?.length) result = applyFilters(result, aiSpec.filters);
-    if (aiSpec?.limit)           result = result.slice(0, aiSpec.limit);
-    return result;
-  }, [items, aiSpec]);
+  const chartItems = useMemo(
+    () => (aiSpec ? applySpec(aiSpec, items) : items),
+    [items, aiSpec],
+  );
 
   const distributions = useMemo(() => {
     return groupableFields.map((field) => {

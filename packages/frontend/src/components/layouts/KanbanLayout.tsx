@@ -1,12 +1,6 @@
 import type { LayoutProps } from '../../engine/layout-registry';
-import type { Item, BaseViewSpec } from '@dsi/shared';
-
-type VL = BaseViewSpec['valueLabels'];
-
-/** Resolve a raw value through valueLabels for a given field. Never mutates data. */
-function display(vl: VL, fieldKey: string, raw: string): string {
-  return vl?.[fieldKey]?.[raw] ?? raw;
-}
+import type { Item } from '@dsi/shared';
+import { type VL, display } from './layout-helpers';
 
 /**
  * KanbanLayout — groups items by the spec's groupBy field into columns.
