@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie,
 } from 'recharts';
 import { BarChart3, Sparkles } from 'lucide-react';
-import type { BaseViewSpec, FilterClause } from '@dsi/shared';
+import type { FilterClause, BaseViewSpec } from '@dsi/shared';
 import { useApp } from '../context/AppContext';
-import { AiChatDrawer, AiResetButton } from '../components/ai/AiChatDrawer';
+import { useGlobalSpec } from '../context/GlobalAiContext';
 
 const PALETTE = [
   '#6366f1', '#3b82f6', '#10b981', '#f59e0b',
@@ -28,8 +28,7 @@ function applyFilters(items: ReturnType<typeof useApp>['items'], filters: Filter
 
 export function AnalyticsPage() {
   const { appId, items, vocabulary, loading } = useApp();
-  const [chatOpen, setChatOpen] = useState(false);
-  const [aiSpec, setAiSpec]     = useState<BaseViewSpec | null>(null);
+  const [aiSpec, setAiSpec]     = useGlobalSpec<BaseViewSpec>(appId, 'analytics');
 
   // Determine which fields to chart — AI spec can narrow this
   const groupableFields = useMemo(() => {
@@ -84,13 +83,11 @@ export function AnalyticsPage() {
           </div>
           <span className="text-xs text-gray-400">{chartItems.length} items · {groupableFields.length} dimensions</span>
           <div className="ml-auto flex items-center gap-2">
-            {aiSpec && <AiResetButton onClick={() => setAiSpec(null)} />}
-            <button
-              onClick={() => setChatOpen((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${chatOpen ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-100'}`}
-            >
-              <Sparkles size={12} /> AI
-            </button>
+            {aiSpec && (
+              <button onClick={() => setAiSpec(null)} className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors">
+                <Sparkles size={11} /> Reset
+              </button>
+            )}
           </div>
         </div>
 
@@ -164,16 +161,6 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {/* AI chat drawer */}
-      {chatOpen && (
-        <AiChatDrawer
-          appId={appId}
-          tabHint="analytics charts"
-          placeholder='e.g. "focus on priority breakdown" · "only in-progress items"'
-          onSpec={(spec) => setAiSpec(spec)}
-          onClose={() => setChatOpen(false)}
-        />
-      )}
     </div>
   );
 }

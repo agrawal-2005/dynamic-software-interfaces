@@ -9,7 +9,7 @@ export const ENGINEERING_VOCABULARY: AppVocabulary = {
   ],
   fields: [
     { key: 'id',          type: 'string',   description: 'Unique ticket ID' },
-    { key: 'title',       type: 'string',   description: 'Short summary of the ticket',                                sortable: true },
+    { key: 'title',       type: 'string',   description: 'Short summary of the ticket',   filterable: true,             sortable: true },
     { key: 'status',      type: 'enum',     description: 'Current workflow state',
       enumValues: ['backlog', 'in-progress', 'review', 'done'],
       filterable: true, sortable: true, groupable: true },

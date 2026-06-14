@@ -112,6 +112,17 @@ export function buildViewSpecSchema(vocab: AppVocabulary) {
       : z.undefined(),
 
     limit: z.number().int().min(1).max(200).default(100),
+
+    /**
+     * Per-user display aliases for individual field values.
+     * Outer key must be a valid field key; inner keys are raw data values
+     * (no validation — unknown values are ignored by the renderer).
+     * Labels are capped at 40 chars.
+     */
+    valueLabels: z.record(
+      z.enum(fieldKeys),
+      z.record(z.string(), z.string().max(40)),
+    ).optional(),
   });
 
   // Cross-field structural rule: any layout with requiresGroupBy: true in

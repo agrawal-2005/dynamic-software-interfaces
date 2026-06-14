@@ -11,7 +11,7 @@ export const FINANCE_VOCABULARY: AppVocabulary = {
   ],
   fields: [
     { key: 'id',          type: 'string', description: 'Request or invoice ID' },
-    { key: 'title',       type: 'string', description: 'Short description of the spend item',                     sortable: true },
+    { key: 'title',       type: 'string', description: 'Short description of the spend item', filterable: true, sortable: true },
     { key: 'category',    type: 'enum',   description: 'Spend category',
       enumValues: ['salary', 'vendor', 'infrastructure', 'travel', 'marketing'],
       filterable: true, groupable: true },

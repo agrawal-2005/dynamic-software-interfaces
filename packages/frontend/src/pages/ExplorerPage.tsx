@@ -1,10 +1,13 @@
 import { useState, useMemo } from 'react';
 import { Search, SlidersHorizontal, Eye, EyeOff, X, Sparkles } from 'lucide-react';
-import type { BaseViewSpec, FilterClause } from '@dsi/shared';
+import type { FilterClause, BaseViewSpec } from '@dsi/shared';
+
+type VL = BaseViewSpec['valueLabels'];
 import { useApp } from '../context/AppContext';
 import { ViewRenderer } from '../engine/view-renderer';
 import { sharedRegistry } from '../engine/shared-registry';
-import { AiChatDrawer, AiResetButton } from '../components/ai/AiChatDrawer';
+import { useGlobalSpec } from '../context/GlobalAiContext';
+
 
 function applySpecFilters(items: ReturnType<typeof useApp>['items'], filters: FilterClause[]) {
   return items.filter((item) =>
@@ -26,8 +29,7 @@ export function ExplorerPage() {
   const [filters, setFilters]     = useState<Record<string, string>>({});
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set());
   const [showColMenu, setShowColMenu] = useState(false);
-  const [chatOpen, setChatOpen]   = useState(false);
-  const [aiSpec, setAiSpec]       = useState<BaseViewSpec | null>(null);
+  const [aiSpec, setAiSpec]       = useGlobalSpec<BaseViewSpec>(appId, 'explorer');
 
   const columns = useMemo(() => {
     if (aiSpec) {
@@ -42,7 +44,13 @@ export function ExplorerPage() {
   }, [vocabulary, items, aiSpec]);
 
   const visibleCols = columns.filter((c) => !hiddenCols.has(c));
-  const filterableFields = useMemo(() => vocabulary?.fields.filter((f) => f.filterable) ?? [], [vocabulary]);
+  const filterableFields = useMemo(() => {
+    const all = vocabulary?.fields.filter((f) => f.filterable) ?? [];
+    if (!aiSpec) return all;
+    // When AI spec is active, only show filter dropdowns for fields visible in the spec
+    const visibleKeys = new Set(aiSpec.fields.filter((f) => f.visible !== false).map((f) => f.key));
+    return all.filter((f) => visibleKeys.has(f.key));
+  }, [vocabulary, aiSpec]);
 
   // Items after AI spec + manual filters + search
   const filtered = useMemo(() => {
@@ -180,14 +188,11 @@ export function ExplorerPage() {
               )}
             </div>
 
-            {aiSpec && <AiResetButton onClick={() => setAiSpec(null)} />}
-
-            <button
-              onClick={() => setChatOpen((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${chatOpen ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-100'}`}
-            >
-              <Sparkles size={12} /> AI
-            </button>
+            {aiSpec && (
+              <button onClick={() => setAiSpec(null)} className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors">
+                <Sparkles size={11} /> Reset
+              </button>
+            )}
           </div>
         </div>
 
@@ -224,7 +229,7 @@ export function ExplorerPage() {
                       <tr key={item.id as string} className="hover:bg-gray-50/80 transition-colors">
                         {visibleCols.map((col) => (
                           <td key={col} className="px-4 py-2.5 text-gray-700 whitespace-nowrap max-w-[240px] truncate">
-                            <CellValue value={item[col]} col={col} />
+                            <CellValue value={item[col]} col={col} vl={aiSpec?.valueLabels} />
                           </td>
                         ))}
                       </tr>
@@ -237,32 +242,26 @@ export function ExplorerPage() {
         )}
       </div>
 
-      {/* AI chat drawer */}
-      {chatOpen && (
-        <AiChatDrawer
-          appId={appId}
-          tabHint="table explorer"
-          placeholder='e.g. "show title and status only" · "filter high priority"'
-          onSpec={(spec) => setAiSpec(spec)}
-          onClose={() => setChatOpen(false)}
-        />
-      )}
     </div>
   );
 }
 
-function CellValue({ value, col }: { value: unknown; col: string }) {
+function CellValue({ value, col, vl }: { value: unknown; col: string; vl: VL }) {
   if (value == null) return <span className="text-gray-300">—</span>;
   if (Array.isArray(value)) {
     return (
       <div className="flex flex-wrap gap-1">
         {value.map((v, i) => (
-          <span key={i} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{String(v)}</span>
+          <span key={i} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+            {vl?.[col]?.[String(v)] ?? String(v)}
+          </span>
         ))}
       </div>
     );
   }
   const str = String(value);
+  // Always use the raw value for color lookup; show the alias as the label
+  const displayStr = vl?.[col]?.[str] ?? str;
   const statusLike = ['status','phase','priority','impact','category','department'].includes(col);
   if (statusLike) {
     const colors: Record<string, string> = {
@@ -273,10 +272,10 @@ function CellValue({ value, col }: { value: unknown; col: string }) {
       medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600',
     };
     const cls = colors[str.toLowerCase()] ?? 'bg-gray-100 text-gray-600';
-    return <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${cls}`}>{str}</span>;
+    return <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${cls}`}>{displayStr}</span>;
   }
   if ((col.includes('At') || col.includes('date')) && str.includes('T')) {
     try { return <span className="text-gray-500">{new Date(str).toLocaleDateString()}</span>; } catch { /* fall */ }
   }
-  return <span>{str}</span>;
+  return <span>{displayStr}</span>;
 }

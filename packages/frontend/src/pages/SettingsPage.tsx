@@ -1,21 +1,35 @@
 import { useState } from 'react';
-import { Settings, Database, Layout, Trash2, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Settings, Database, Layout, Trash2, RotateCcw, ChevronDown, ChevronRight, History } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { useSpecStore } from '../hooks/useSpecStore';
-import { LocalStorageSpecRepository } from '../engine/spec-repository';
+import { specHistory, type HistoryEntry } from '../engine/spec-history';
+
+const TAB_LABELS: Record<string, string> = {
+  dashboard: 'Dashboard',
+  explorer: 'Explorer',
+  analytics: 'Analytics',
+};
 
 export function SettingsPage() {
   const { appId, vocabulary } = useApp();
-  const { history, current, currentVersionId } = useSpecStore(appId);
+  const navigate = useNavigate();
   const [layoutsOpen, setLayoutsOpen] = useState(true);
   const [fieldsOpen, setFieldsOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(true);
-  const [cleared, setCleared] = useState(false);
+  const [, forceRender] = useState(0);
+
+  const allHistory = specHistory.getAll(appId);
+
+  function handleRestore(entry: HistoryEntry) {
+    specHistory.restoreTo(appId, entry.tab, entry);
+    // Navigate to the tab so it picks up the restored spec
+    navigate(`/${appId}/${entry.tab === 'dashboard' ? '' : entry.tab}`);
+  }
 
   function handleClearHistory() {
     if (!window.confirm('Clear all saved view history for this domain? This cannot be undone.')) return;
-    const repo = new LocalStorageSpecRepository(appId);
-    repo.clear().then(() => setCleared(true));
+    specHistory.clearAll(appId);
+    forceRender((n) => n + 1);
   }
 
   return (
@@ -29,28 +43,6 @@ export function SettingsPage() {
         <p className="text-sm text-gray-400 mt-1">Domain vocabulary and view management for <strong>{appId}</strong></p>
       </div>
 
-      {/* Active view */}
-      <Section title="Active view" icon={<Layout size={15} className="text-indigo-500" />}>
-        {current ? (
-          <div className="space-y-2">
-            <Row label="Name" value={current.name ?? '—'} />
-            <Row label="Layout" value={current.layout} />
-            <Row
-              label="Visible fields"
-              value={current.fields.filter((f) => f.visible).map((f) => f.key).join(', ') || '—'}
-            />
-            {current.groupBy && <Row label="Group by" value={current.groupBy} />}
-            {current.sort && (
-              <Row label="Sort" value={`${current.sort.field} ${current.sort.direction}`} />
-            )}
-            {current.filters && current.filters.length > 0 && (
-              <Row label="Filters" value={`${current.filters.length} active`} />
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-400">No view saved yet for this domain.</p>
-        )}
-      </Section>
 
       {/* Layouts vocabulary */}
       {vocabulary && (
@@ -140,37 +132,51 @@ export function SettingsPage() {
         </Collapsible>
       )}
 
-      {/* Version history management */}
+      {/* Version history */}
       <Collapsible
-        title={`View history (${history.length} versions)`}
-        icon={<RotateCcw size={15} className="text-gray-500" />}
+        title={`View history (${allHistory.length} versions)`}
+        icon={<History size={15} className="text-gray-500" />}
         open={historyOpen}
         onToggle={() => setHistoryOpen((v) => !v)}
       >
-        {cleared ? (
-          <div className="text-sm text-green-600 bg-green-50 rounded-lg p-3">
-            History cleared. Reload the page to see changes.
-          </div>
-        ) : history.length === 0 ? (
-          <p className="text-sm text-gray-400">No saved versions yet.</p>
+        {allHistory.length === 0 ? (
+          <p className="text-sm text-gray-400">No saved versions yet. Use the AI chat on any tab to generate views — they'll appear here.</p>
         ) : (
           <div className="space-y-2">
-            {history.map((v, i) => (
-              <div key={v.id} className="flex items-center justify-between p-3 rounded-lg bg-gray-50 text-sm">
-                <div>
-                  <span className="font-medium text-gray-800">{v.spec.name ?? 'Untitled'}</span>
-                  <span className="ml-2 text-xs text-gray-400">
-                    {v.spec.layout} · {new Date(v.savedAt).toLocaleString()}
-                  </span>
-                  {i === 0 && (
-                    <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">current</span>
-                  )}
+            {allHistory.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-100 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-gray-800 truncate">
+                      {entry.spec.name ?? 'Untitled view'}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded flex-shrink-0">
+                      {TAB_LABELS[entry.tab] ?? entry.tab}
+                    </span>
+                    <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                      {entry.spec.layout}
+                    </span>
+                    {entry.spec.filters?.length ? (
+                      <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded flex-shrink-0">
+                        {entry.spec.filters.length} filter{entry.spec.filters.length > 1 ? 's' : ''}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {new Date(entry.savedAt).toLocaleString()}
+                  </p>
                 </div>
+                <button
+                  onClick={() => handleRestore(entry)}
+                  className="ml-3 flex-shrink-0 flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 border border-indigo-200 hover:border-indigo-400 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-2.5 py-1.5 transition-colors"
+                >
+                  <RotateCcw size={11} /> Restore
+                </button>
               </div>
             ))}
             <button
               onClick={handleClearHistory}
-              className="mt-2 flex items-center gap-1.5 text-xs text-red-600 hover:text-red-800 border border-red-200 rounded-lg px-3 py-1.5"
+              className="mt-2 flex items-center gap-1.5 text-xs text-red-600 hover:text-red-800 border border-red-200 rounded-lg px-3 py-1.5 transition-colors"
             >
               <Trash2 size={12} /> Clear all history
             </button>

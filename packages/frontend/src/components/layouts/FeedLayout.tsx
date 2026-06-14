@@ -1,12 +1,21 @@
 import type { LayoutProps } from '../../engine/layout-registry';
+import type { BaseViewSpec } from '@dsi/shared';
+
+type VL = BaseViewSpec['valueLabels'];
+
+function display(vl: VL, fieldKey: string, raw: string): string {
+  return vl?.[fieldKey]?.[raw] ?? raw;
+}
 
 /**
  * FeedLayout — renders items as a chronological activity stream.
  * Uses the first date field in the visible fields as the timestamp;
  * falls back to displaying all visible fields if none is a date.
+ * Field values are resolved through spec.valueLabels when present.
  */
 export function FeedLayout({ spec, items }: LayoutProps) {
   const visibleFields = spec.fields.filter((f) => f.visible);
+  const vl = spec.valueLabels;
 
   if (items.length === 0) {
     return (
@@ -43,7 +52,7 @@ export function FeedLayout({ spec, items }: LayoutProps) {
             </div>
 
             {/* Content */}
-            <div className={['pb-5', isLast ? '' : ''].join(' ')}>
+            <div className="pb-5">
               <p className="text-sm font-medium text-gray-800">{String(title ?? '—')}</p>
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
                 {time != null && (
@@ -54,10 +63,13 @@ export function FeedLayout({ spec, items }: LayoutProps) {
                 {metaFields.map((f) => {
                   const val = item[f.key];
                   if (val == null) return null;
+                  const rendered = Array.isArray(val)
+                    ? val.map((v) => display(vl, f.key, String(v))).join(', ')
+                    : display(vl, f.key, String(val));
                   return (
                     <span key={f.key}>
                       <span className="capitalize">{f.label ?? f.key}:</span>{' '}
-                      {Array.isArray(val) ? val.join(', ') : String(val)}
+                      {rendered}
                     </span>
                   );
                 })}

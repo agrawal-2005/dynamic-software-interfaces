@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { BaseViewSpec } from '@dsi/shared';
+
 import { Sparkles, X, Send, Loader2, Bot, User, RotateCcw } from 'lucide-react';
 import { generateSpec } from '../../api/client';
 
@@ -13,11 +14,12 @@ type Props = {
   appId: string;
   tabHint: string;
   placeholder?: string;
+  currentSpec?: BaseViewSpec | null;
   onSpec: (spec: BaseViewSpec) => void;
   onClose: () => void;
 };
 
-export function AiChatDrawer({ appId, tabHint, placeholder, onSpec, onClose }: Props) {
+export function AiChatDrawer({ appId, tabHint, placeholder, currentSpec, onSpec, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'init',
@@ -44,15 +46,13 @@ export function AiChatDrawer({ appId, tabHint, placeholder, onSpec, onClose }: P
 
     try {
       const description = tabHint ? `${text} (for ${tabHint} view)` : text;
-      const spec = await generateSpec(appId, description);
-      const name = spec.name ?? `${spec.layout} view`;
-      const visibleFields = spec.fields.filter((f) => f.visible !== false).length;
+      const spec = await generateSpec(appId, description, currentSpec);
       setMessages((prev) => [
         ...prev,
         {
           id: `a-${Date.now()}`,
           role: 'assistant',
-          content: `Applied "${name}" — ${visibleFields} fields, ${spec.layout} layout${spec.filters?.length ? `, ${spec.filters.length} filter(s)` : ''}`,
+          content: describeChanges(currentSpec ?? null, spec),
         },
       ]);
       onSpec(spec);
@@ -175,6 +175,55 @@ export function AiResetButton({ onClick }: { onClick: () => void }) {
       <RotateCcw size={11} /> Reset
     </button>
   );
+}
+
+function describeChanges(prev: BaseViewSpec | null, next: BaseViewSpec): string {
+  if (!prev) {
+    const visible = next.fields.filter((f) => f.visible !== false).length;
+    return `Applied "${next.name ?? next.layout} view" — ${visible} fields, ${next.layout} layout${next.filters?.length ? `, ${next.filters.length} filter(s)` : ''}.`;
+  }
+
+  const changes: string[] = [];
+
+  // Layout change
+  if (prev.layout !== next.layout) changes.push(`Layout changed to ${next.layout}`);
+
+  // groupBy change
+  if (prev.groupBy !== next.groupBy) {
+    if (next.groupBy) changes.push(`Grouped by ${next.groupBy}`);
+    else changes.push('Removed grouping');
+  }
+
+  // Field visibility changes
+  const prevVisible = new Set(prev.fields.filter((f) => f.visible !== false).map((f) => f.key));
+  const nextVisible = new Set(next.fields.filter((f) => f.visible !== false).map((f) => f.key));
+  const added   = [...nextVisible].filter((k) => !prevVisible.has(k));
+  const removed = [...prevVisible].filter((k) => !nextVisible.has(k));
+  if (added.length)   changes.push(`Added column${added.length > 1 ? 's' : ''}: ${added.join(', ')}`);
+  if (removed.length) changes.push(`Removed column${removed.length > 1 ? 's' : ''}: ${removed.join(', ')}`);
+
+  // Filter changes
+  const prevFilters = JSON.stringify(prev.filters ?? []);
+  const nextFilters = JSON.stringify(next.filters ?? []);
+  if (prevFilters !== nextFilters) {
+    const prevLen = (prev.filters ?? []).length;
+    const nextLen = (next.filters ?? []).length;
+    if (nextLen > prevLen) changes.push(`Added ${nextLen - prevLen} filter(s)`);
+    else if (nextLen < prevLen) changes.push(`Removed ${prevLen - nextLen} filter(s)`);
+    else changes.push('Updated filters');
+  }
+
+  // Sort change
+  if (JSON.stringify(prev.sort) !== JSON.stringify(next.sort)) {
+    if (next.sort) changes.push(`Sort by ${next.sort.field} (${next.sort.direction})`);
+    else changes.push('Removed sort');
+  }
+
+  // Limit change
+  if (prev.limit !== next.limit && next.limit) changes.push(`Limit set to ${next.limit}`);
+
+  if (changes.length === 0) return 'No visible changes detected — the view looks the same.';
+  return changes.join(' · ') + '.';
 }
 
 function getGreeting(hint: string): string {

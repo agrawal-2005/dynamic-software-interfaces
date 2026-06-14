@@ -27,6 +27,13 @@ export type BaseViewSpec = {
     direction: 'asc' | 'desc';
   };
   limit: number;
+  /**
+   * Per-user display aliases for individual field values.
+   * { fieldKey: { rawValue: displayLabel } }
+   * Display-only — the underlying data is never modified.
+   * Unknown rawValues are silently ignored at render time.
+   */
+  valueLabels?: Record<string, Record<string, string>>;
 };
 
 /**

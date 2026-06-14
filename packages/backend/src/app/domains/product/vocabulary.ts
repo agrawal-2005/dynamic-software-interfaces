@@ -9,7 +9,7 @@ export const PRODUCT_VOCABULARY: AppVocabulary = {
   ],
   fields: [
     { key: 'id',        type: 'string',   description: 'Unique initiative ID' },
-    { key: 'title',     type: 'string',   description: 'Initiative name',                                              sortable: true },
+    { key: 'title',     type: 'string',   description: 'Initiative name',               filterable: true,             sortable: true },
     { key: 'phase',     type: 'enum',     description: 'Current product phase',
       enumValues: ['discovery', 'definition', 'build', 'launch', 'done'],
       filterable: true, sortable: true, groupable: true },

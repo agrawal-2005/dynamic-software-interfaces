@@ -1,9 +1,18 @@
 import type { LayoutProps } from '../../engine/layout-registry';
+import type { BaseViewSpec } from '@dsi/shared';
+
+type VL = BaseViewSpec['valueLabels'];
+
+function display(vl: VL, fieldKey: string, raw: string): string {
+  return vl?.[fieldKey]?.[raw] ?? raw;
+}
 
 /** Renders visible fields as a sortable table. Column headings use the
- *  spec's optional per-user label, falling back to the field key. */
+ *  spec's optional per-user label, falling back to the field key.
+ *  Cell values are resolved through spec.valueLabels when present. */
 export function TableLayout({ spec, items }: LayoutProps) {
   const visibleFields = spec.fields.filter((f) => f.visible);
+  const vl = spec.valueLabels;
 
   if (items.length === 0) {
     return <EmptyState message="No items match the current filters." />;
@@ -29,7 +38,7 @@ export function TableLayout({ spec, items }: LayoutProps) {
             <tr key={item.id as string} className="hover:bg-gray-50 transition-colors">
               {visibleFields.map((f) => (
                 <td key={f.key} className="px-4 py-3 text-gray-700 whitespace-nowrap">
-                  <CellValue value={item[f.key]} />
+                  <CellValue value={item[f.key]} fieldKey={f.key} vl={vl} />
                 </td>
               ))}
             </tr>
@@ -40,20 +49,20 @@ export function TableLayout({ spec, items }: LayoutProps) {
   );
 }
 
-function CellValue({ value }: { value: unknown }) {
+function CellValue({ value, fieldKey, vl }: { value: unknown; fieldKey: string; vl: VL }) {
   if (value == null) return <span className="text-gray-400">—</span>;
   if (Array.isArray(value)) {
     return (
       <div className="flex flex-wrap gap-1">
         {value.map((v, i) => (
           <span key={i} className="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600">
-            {String(v)}
+            {display(vl, fieldKey, String(v))}
           </span>
         ))}
       </div>
     );
   }
-  return <span>{String(value)}</span>;
+  return <span>{display(vl, fieldKey, String(value))}</span>;
 }
 
 function EmptyState({ message }: { message: string }) {

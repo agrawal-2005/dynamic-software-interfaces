@@ -22,15 +22,24 @@ export class SpecGenerator {
     private readonly vocab: AppVocabulary,
   ) {}
 
-  async generate(description: string): Promise<BaseViewSpec> {
+  async generate(description: string, currentSpec?: unknown): Promise<BaseViewSpec> {
     const model = this.client.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
       systemInstruction: this.buildSystemPrompt(),
     });
 
+    const userText = currentSpec
+      ? `CURRENT_SPEC:\n${JSON.stringify(currentSpec, null, 2)}\n\nINSTRUCTION: ${description}`
+      : description;
+
     const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: description }] }],
-      generationConfig: { maxOutputTokens: 1024, temperature: 0.1 },
+      contents: [{ role: 'user', parts: [{ text: userText }] }],
+      generationConfig: {
+        maxOutputTokens: 1024,
+        temperature: 0.1,
+        // @ts-ignore — thinkingConfig is supported in gemini-2.5 but not yet typed
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     });
 
     const text = result.response.text();
@@ -62,7 +71,8 @@ export class SpecGenerator {
         if (f.groupable)  caps.push('groupable');
         const vals  = f.enumValues ? ` Allowed values: [${f.enumValues.join(', ')}].` : '';
         const flags = caps.length ? ` [${caps.join(', ')}]` : '';
-        return `  - "${f.key}" (${f.type}): ${f.description}.${vals}${flags}`;
+        // Include key prominently so the model maps human descriptions to field keys
+        return `  - key="${f.key}" label="${f.description}" (${f.type})${vals}${flags}`;
       })
       .join('\n');
 
@@ -78,6 +88,11 @@ STRICT RULES:
 - Filters HIDE data from view; they never delete or modify it.
 - "label" on a field is a personal display rename only — it does not change the underlying key.
 - If a layout requires groupBy, you MUST include a valid groupBy value.
+- If the user message starts with CURRENT_SPEC:, treat that JSON as the base spec and apply only the INSTRUCTION as an incremental modification (add/remove/change fields or filters as needed). Carry forward everything else unchanged.
+- valueLabels renames individual field VALUES for display only — it NEVER modifies the underlying data.
+  Use it when the user asks to rename a status, phase, category, or any enum value.
+  Example: "rename in-progress to Doing" → valueLabels: { "status": { "in-progress": "Doing" } }
+  Outer key must be a valid field key from the vocabulary. Inner keys are raw data values (any string is allowed). Labels must be ≤40 chars.
 
 ALLOWED VOCABULARY
 ==================
@@ -112,7 +127,8 @@ OUTPUT SCHEMA (produce exactly this shape):
     { "field": "<filterable key>", "op": "<op>", "value": "<string or array>" }
   ],
   "sort": { "field": "<sortable key>", "direction": "asc|desc" },
-  "limit": 100
+  "limit": 100,
+  "valueLabels": { "<fieldKey>": { "<rawValue>": "<display label>" } }
 }`.trim();
   }
 

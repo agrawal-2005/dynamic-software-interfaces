@@ -13,7 +13,7 @@ export function agentRouter(registry: AppRegistry): Router {
   const router = Router();
 
   router.post('/', async (req, res) => {
-    const { appId, description } = req.body as { appId?: string; description?: string };
+    const { appId, description, currentSpec } = req.body as { appId?: string; description?: string; currentSpec?: unknown };
 
     if (!appId || typeof appId !== 'string') {
       res.status(400).json({ error: 'Body must include appId (string)' });
@@ -31,7 +31,7 @@ export function agentRouter(registry: AppRegistry): Router {
     }
 
     try {
-      const spec = await bundle.generator.generate(description.trim());
+      const spec = await bundle.generator.generate(description.trim(), currentSpec);
       res.json({ appId, spec });
     } catch (err) {
       if (err instanceof ValidatorError) {
@@ -43,7 +43,13 @@ export function agentRouter(registry: AppRegistry): Router {
         return;
       }
       console.error('SpecGenerator error:', err);
-      res.status(500).json({ error: 'Internal error during spec generation' });
+      const msg = err instanceof Error ? err.message : String(err);
+      const isQuota = msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate');
+      res.status(500).json({
+        error: isQuota
+          ? 'AI rate limit hit — wait a few seconds and try again'
+          : 'Internal error during spec generation',
+      });
     }
   });
 
