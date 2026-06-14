@@ -235,8 +235,8 @@ function Hero() {
 
         {/* Sub */}
         <p style={{ fontSize: 'clamp(15px, 2vw, 18px)', color: '#5a6070', lineHeight: 1.7, maxWidth: 580, margin: '0 auto 36px', fontWeight: 400 }}>
-          Tell the dashboard what you want to see — in plain English. It shapes itself around you.
-          Same data, completely different interface for every person on the team.
+          Type what you want in plain English. One chat reshapes navigation, layouts, filters, and groupings
+          across every surface. Same data, a completely different interface per person.
         </p>
 
         {/* Spec annotation */}
@@ -266,12 +266,12 @@ function Hero() {
 
 // ── Suggestion chips (static visual) ──────────────────────────────────────────
 const CHIPS: { label: string; tag: string; color: string }[] = [
-  { label: 'show only critical',       tag: 'filter', color: '#ff4e6a' },
-  { label: 'group by assignee',        tag: 'group',  color: '#7c5cff' },
-  { label: 'rename in‑progress → Doing', tag: 'rename', color: '#3ad1c6' },
-  { label: 'hide done items',          tag: 'filter', color: '#ff4e6a' },
-  { label: 'switch to card view',      tag: 'layout', color: '#f5a623' },
-  { label: 'sort by priority desc',    tag: 'sort',   color: '#7c5cff' },
+  { label: 'show only critical',          tag: 'filter',  color: '#ff4e6a' },
+  { label: 'group by assignee',           tag: 'group',   color: '#7c5cff' },
+  { label: 'add Finance to the sidebar',  tag: 'nav',     color: '#3ad1c6' },
+  { label: 'hide done items',             tag: 'filter',  color: '#ff4e6a' },
+  { label: 'switch to card view',         tag: 'layout',  color: '#f5a623' },
+  { label: 'sort by priority desc',       tag: 'sort',    color: '#7c5cff' },
 ];
 
 function ChipsDisplay() {
@@ -348,7 +348,7 @@ function Demo() {
         </div>
 
         <p className="mono" style={{ textAlign: 'center', fontSize: 11, color: '#3a3f50', marginTop: 16 }}>
-          Click the ✦ button in the corner of the app, describe a view, watch it render.
+          Click the chat button, describe a view or reshape the sidebar — the AI routes it automatically.
         </p>
       </div>
     </section>
@@ -360,25 +360,25 @@ const STEPS = [
   {
     n: '01',
     title: 'You describe it',
-    body: 'Type what you want in plain English — "show only in-progress items, group by assignee" or "switch to a card grid, hide low priority." No filter panels.',
+    body: 'Type what you want in plain English — "group by assignee", "switch to cards", or "add Finance to the sidebar." One chat input reaches every surface.',
     accent: '#7c5cff',
   },
   {
     n: '02',
-    title: 'AI translates it',
-    body: 'A language model returns a view spec — a small JSON document saying which fields to show, which layout, which rows to hide, and how to sort.',
+    title: 'AI routes and translates',
+    body: 'The model reads your vocabulary and routes the request to the right surface — sidebar navigation or a data view — without keywords. Ambiguous requests come back as a clarification choice, not a guess.',
     accent: '#3ad1c6',
   },
   {
     n: '03',
     title: 'Backend validates it',
-    body: 'The server checks the spec against the domain vocabulary. The vocabulary has only display instructions — no write operations. The AI cannot change data, even if asked.',
+    body: 'The server checks the spec against the domain vocabulary. Only display instructions exist in the vocabulary — no write operations. The AI cannot change data, even if asked.',
     accent: '#f5a623',
   },
   {
     n: '04',
     title: 'Renderer draws it',
-    body: 'The validated spec goes to a layout-agnostic renderer. Kanban, table, cards, or activity feed — same engine, any domain that defines a vocabulary file.',
+    body: 'The validated spec is stored under your user and section, then rendered. Kanban, table, cards, feed — same engine, any domain. Your changes are invisible to everyone else.',
     accent: '#ff4e6a',
   },
 ];
@@ -389,7 +389,7 @@ const GUARANTEES = [
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
     ),
     title: 'Safe by construction',
-    body: "The spec vocabulary has no mutation verbs. Asking the AI to \"delete done items\" produces a filter that hides them from your view. The underlying data is untouched.",
+    body: "The spec vocabulary has no mutation verbs. Asking the AI to \"delete done items\" produces a filter that hides them from your view — the underlying data is untouched.",
     accent: '#3ad1c6',
   },
   {
@@ -397,7 +397,7 @@ const GUARANTEES = [
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>
     ),
     title: 'One engine, any domain',
-    body: 'Engineering, Product, and Finance all run the same renderer. Adding a domain is writing one vocabulary file — the engine code never changes.',
+    body: 'Engineering, Product, and Finance all run the same renderer and router. Adding a new domain is writing one vocabulary file — zero engine changes.',
     accent: '#7c5cff',
   },
   {
@@ -405,7 +405,7 @@ const GUARANTEES = [
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.15"/></svg>
     ),
     title: 'Private and reversible',
-    body: "Specs are stored per person, per domain, per section. Settings shows your full history — restore any version with one click.",
+    body: "Every spec is stored per person, per domain, per section — sidebar and data views tracked separately. Settings shows your full version history; restore any prior view with one click.",
     accent: '#f5a623',
   },
 ];
@@ -537,7 +537,7 @@ function Cta() {
           <div style={{ position: 'relative' }}>
             <h2 className="display-2" style={{ color: '#e8eaf0', marginBottom: 16, marginTop: 0 }}>See it yourself</h2>
             <p style={{ fontSize: 15, color: '#5a6070', lineHeight: 1.7, marginBottom: 32, maxWidth: 480, margin: '0 auto 32px' }}>
-              The demo above is the real product. Open the AI chat, describe a view, and watch it render — then switch datasets and try again.
+              The demo is the real product. Open the chat panel, describe what you want — the AI routes your request to the right surface, the backend validates it, and the renderer draws it. Switch domains and try again.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               <button className="btn-primary" onClick={() => scrollToId('demo')}>
@@ -568,7 +568,7 @@ function Footer() {
           <span style={{ fontSize: 13, color: '#3a3f50' }}>Open prototype</span>
         </div>
         <p className="mono" style={{ fontSize: 11, color: '#3a3f50', margin: 0 }}>
-          Built with React, Gemini, TypeScript. The data never changes — only the view does.
+          Built with React, Gemini 2.5 Flash, TypeScript. The data never changes — only the view does.
         </p>
       </div>
     </footer>
