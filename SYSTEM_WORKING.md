@@ -1,7 +1,7 @@
 # SYSTEM_WORKING.md — How this project actually works
 
-> Based on the code as it exists today. Where reality differs from the idealized
-> description, this document states what the code does, not what was intended.
+> Based on the code as it exists today. Where reality differs from idealized
+> descriptions, this document states what the code does, not what was intended.
 
 ---
 
@@ -12,36 +12,75 @@
 | Export | File | Responsibility |
 |---|---|---|
 | `Item` | `item/item.types.ts` | Generic data unit: `{ id: string; [key: string]: unknown }` |
-| `FilterClause`, `QueryParams`, etc. | `item/item.types.ts` | Query primitives (filter op, sort, limit) |
+| `FilterClause`, `QueryParams`, etc. | `item/item.types.ts` | Query primitives: filter op, sort, limit |
 | `AppVocabulary`, `AppFieldDef`, `AppLayoutDef` | `spec/app-vocabulary.ts` | Domain vocabulary shape — fields + layouts, no domain strings |
-| `BaseViewSpec`, `SpecVersion` | `spec/view-spec.types.ts` | The view spec contract |
+| `BaseViewSpec`, `SpecVersion` | `spec/view-spec.types.ts` | View spec contract |
 | `buildViewSpecSchema(vocab)` | `spec/view-spec.schema.ts` | Zod schema factory — derives a concrete schema from any vocabulary |
 | `SidebarSpec`, `SidebarNavItem`, `SidebarVocabulary`, `SidebarItemSpec` | `spec/sidebar-spec.types.ts` | Sidebar display spec types |
 | `buildSidebarSpecSchema(vocab)` | `spec/sidebar-spec.schema.ts` | Zod schema factory for sidebar specs |
-| `GenerateRequest` | `types/generate.ts` | Unified generate request: `{ message, appId, activeSurface, currentSpecs, forceSurface? }` |
-| `GenerateResponse` | `types/generate.ts` | Union: `{ status: "applied", targetSurface, spec, message }` \| `{ status: "needs_clarification", question, options }` |
-| `ClarificationOption` | `types/generate.ts` | `{ surface: string; label: string }` — one option in a `needs_clarification` response |
+| `NavSpec` | `spec/nav-spec.types.ts` | `{ version: '1.0'; visible?: boolean; hiddenTabs: string[] }` |
+| `GenerateRequest`, `GenerateResponse`, `ClarificationOption` | `types/generate.ts` | Unified generate request/response contract |
+
+`ClarificationOption` is `{ surface: string; label: string; hint?: string }`. The `hint` field carries the exact message to re-send when the user picks an option — making the re-send self-contained and unambiguous.
+
+---
 
 ### Backend engine — `packages/backend/src/engine/` (domain-agnostic, defined once)
 
 | Class | File | Responsibility |
 |---|---|---|
 | `DataStore` | `data-store.ts` | Holds `Item[]` in memory; applies `QueryParams` (filter/sort/limit); emits `'change'` event on mutation |
-| `SpecValidator` | `spec-validator.ts` | Constructed with a vocabulary; calls `buildViewSpecSchema()` once; `assert(raw)` throws `ValidatorError` if model output fails Zod |
-| `SpecGenerator` | `spec-generator.ts` | Calls Gemini 2.5 Flash with a vocabulary-derived system prompt; extracts JSON; calls `SpecValidator.assert()` |
+| `SpecValidator` | `spec-validator.ts` | Constructed with a vocabulary; calls `buildViewSpecSchema()` once; `assert(raw)` throws `ValidatorError` if AI output fails Zod |
+| `UnifiedGenerator` | `unified-generator.ts` | Single Gemini 2.5 Flash client; receives all `SurfaceContext[]`; routes by vocabulary meaning; returns `applied` or `needs_clarification` |
 | `LiveChannel` | `live-channel.ts` | One WebSocket server; routes broadcasts to per-domain rooms; attaches to `DataStore` change events |
-| `SidebarGenerator` | `sidebar-generator.ts` | Singleton (not per-domain); generates `SidebarSpec` from Gemini; validates with `buildSidebarSpecSchema`; used by legacy `/api/generate-sidebar-spec` route |
-| `UnifiedGenerator` | `unified-generator.ts` | Singleton; routes a message to the correct surface AND generates the spec in a single Gemini call; vocabulary-driven, no keyword heuristics |
-| `SurfaceContext` | `unified-generator.ts` | Interface passed to `UnifiedGenerator`: `{ id, label, purpose, vocabText, currentSpec }` — one per surface, built at request time |
+
+There is no longer a `SpecGenerator` or `SidebarGenerator` class. Both legacy per-surface generators were replaced by `UnifiedGenerator` in a single call.
+
+---
 
 ### Backend app layer — `packages/backend/src/app/`
 
 | Part | Location | Responsibility |
 |---|---|---|
-| `buildAppRegistry(apiKey)` | `app-registry.ts` | Creates one `(DataStore, SpecValidator, SpecGenerator)` triple per domain at startup; returns `AppRegistry` record |
-| `ENGINEERING_VOCABULARY`, seed | `domains/engineering/` | Engineering field + layout definitions; ~20 seed items |
-| `PRODUCT_VOCABULARY`, seed | `domains/product/` | Product field + layout definitions; ~15 seed items |
-| `FINANCE_VOCABULARY`, seed | `domains/finance/` | Finance field + layout definitions; ~25 seed items |
+| `buildAppRegistry()` | `app-registry.ts` | Creates one `{ DataStore, SpecValidator }` pair per domain at startup; returns `AppRegistry` record |
+| `buildSurfaceRegistry(sidebarVocab, appRegistry)` | `surface-registry.ts` | Declares every customizable surface once at startup as a `SurfaceDef`; returns `SurfaceRegistry` with `resolve()` |
+| `ENGINEERING_VOCABULARY`, seed | `domains/engineering/` | Layouts + fields with synonym-rich descriptions; ~20 seed items |
+| `PRODUCT_VOCABULARY`, seed | `domains/product/` | Layouts + fields; ~15 seed items |
+| `FINANCE_VOCABULARY`, seed | `domains/finance/` | Layouts + fields (no kanban); ~25 seed items |
+
+#### `SurfaceDef` — the unit of the surface registry
+
+```typescript
+interface SurfaceDef {
+  readonly id:                    string;        // stable id matching AI response targetSurface
+  readonly label:                 string;        // human-readable name
+  readonly purpose:               string;        // describes what this surface controls; injected into AI prompt
+  readonly specSchema:            string;        // JSON schema description sent verbatim to the AI
+  readonly clarificationGuidance: string;        // per-surface option-generation instructions for the AI
+  specKey(ctx: RequestContext): string;          // key used to look up this surface's spec in currentSpecs
+  buildLabel?(ctx: RequestContext): string;      // optional request-specific label (e.g. "Engineering · dashboard")
+  buildVocabText(currentSpec: unknown): string;  // injects current visible/hidden state into pre-computed vocab text
+}
+```
+
+`clarificationGuidance` was previously hardcoded in the system prompt as per-surface rules. It now lives as data on each `SurfaceDef`. The system prompt says "follow each surface's clarification guidance" — naming no surface itself.
+
+The vocab text's structural part (field listings, layout listings, tab listings) is pre-computed at startup and captured in a closure. `buildVocabText` only recomputes the visible/hidden state lines per request.
+
+#### `SurfaceRegistry`
+
+```typescript
+interface SurfaceRegistry {
+  readonly sidebar: SurfaceDef;
+  readonly nav:     SurfaceDef;
+  readonly views:   Readonly<Record<string, SurfaceDef>>;  // keyed by appId
+  resolve(appId: string, section: string): SurfaceDef[];  // returns [sidebar, views[appId], nav]
+}
+```
+
+`resolve()` is the only entry point the generate route uses. It returns all surfaces for the request in prompt order. Adding a new surface type = add a `SurfaceDef` + include it in `resolve()`. The route and the AI prompt require no changes.
+
+---
 
 ### Backend routes — `packages/backend/src/routes/`
 
@@ -50,169 +89,121 @@
 | `apps.ts` | `GET /api/apps` | Returns domain list `{ apps: [{id, label}] }` |
 | `schema.ts` | `GET /api/schema?app=<id>` | Returns vocabulary for a domain |
 | `items.ts` | `GET /api/items?app=<id>[&filter=…][&sort=…][&limit=N]` | Read-only item query |
-| `agent.ts` | `POST /api/generate-spec` | Runs `SpecGenerator`, returns validated `BaseViewSpec` (legacy; not used by `GlobalChatPanel`) |
-| `sidebar-agent.ts` | `POST /api/generate-sidebar-spec` | Runs `SidebarGenerator`, returns validated `SidebarSpec` (legacy; not used by `GlobalChatPanel`) |
-| `generate.ts` | `POST /api/generate` | Unified endpoint: builds `SurfaceContext[]` from live registry, calls `UnifiedGenerator`, validates result, returns `applied` \| `needs_clarification` |
+| `generate.ts` | `POST /api/generate` | Calls `surfaceRegistry.resolve()`, assembles `SurfaceContext[]` generically, calls `UnifiedGenerator`, validates result, returns `applied` \| `needs_clarification` |
+
+The legacy per-surface routes (`POST /api/generate-spec`, `POST /api/generate-sidebar-spec`) have been removed.
+
+---
 
 ### Frontend engine — `packages/frontend/src/engine/` (domain-agnostic)
 
-| Class/file | Status | Responsibility |
+| File | Status | Responsibility |
 |---|---|---|
-| `LayoutRegistry` | **Active** | Maps layout name string → React component; populated once at startup |
-| `ViewRenderer` | **Active** | Looks up layout in registry; applies spec filters/sort/limit client-side; renders |
-| `sharedRegistry` | **Active** | Singleton `LayoutRegistry` pre-populated with table, kanban, feed, cards |
-| `spec-history.ts` | **Active** | Stores up to 20 versions per `appId:tab` in localStorage; used by SettingsPage |
-| `ISpecRepository`, `LocalStorageSpecRepository` | **Exists but unused** | Legacy interface from an earlier design; no page currently instantiates it |
-| `SpecStore` | **Exists but unused** | Legacy engine class with pending/accept/reject/history slots; no page currently uses it |
+| `layout-registry.ts` | **Active** | Maps layout name string → React component |
+| `view-renderer.tsx` | **Active** | Applies spec filters/sort/limit client-side; dispatches to layout |
+| `shared-registry.ts` | **Active** | Singleton `LayoutRegistry` pre-populated with table, kanban, feed, cards |
+| `spec-history.ts` | **Active** | Stores up to 20 versions per `appId:tab` in localStorage; view specs only (nav and sidebar excluded) |
+
+---
 
 ### Frontend app layer
 
 | Part | Location | Responsibility |
 |---|---|---|
-| `AppContext` | `context/AppContext.tsx` | Active `appId`, `apps` list, `items`, `vocabulary`, WebSocket `connected` state |
+| `AppContext` | `context/AppContext.tsx` | Active `appId`, `apps` list, `items`, `vocabulary`, live connection state |
 | `GlobalAiContext` | `context/GlobalAiContext.tsx` | In-memory spec cache (Map ref) + localStorage write-through; chat open/close + section override |
 | `useGlobalSpec(appId, section)` | same file | Per-surface spec accessor: `[spec, setSpec]` |
-| `useCurrentSection()` | `hooks/useCurrentSection.ts` | Derives section string (`dashboard`, `explorer`, `analytics`) from URL pathname |
+| `useCurrentSection()` | `hooks/useCurrentSection.ts` | Derives section string from URL pathname |
 | `useLiveData(appId)` | `hooks/useLiveData.ts` | REST initial fetch + WebSocket subscription; auto-reconnects |
-| `GlobalChatPanel` | `components/ai/GlobalChatPanel.tsx` | Single shared chat UI; sends all messages to `POST /api/generate`; renders `needs_clarification` as option buttons; applies spec returned by backend; no routing logic of its own |
-| `AppShell` | `components/layout/AppShell.tsx` | Root layout: Sidebar + content + GlobalChatPanel |
-| `Sidebar` | `components/layout/Sidebar.tsx` | Spec-driven nav; renders from `SidebarSpec` via `useGlobalSpec('global','sidebar')` |
-| `DomainPage`, `DashboardPage`, `ExplorerPage`, `AnalyticsPage`, `SettingsPage` | `pages/` | Per-section views; use `useGlobalSpec(appId, section)` |
-| Layout components | `components/layouts/` | `TableLayout`, `KanbanLayout`, `FeedLayout`, `CardsLayout` — each accepts `{spec, items}` |
+| `GlobalChatPanel` | `components/ai/GlobalChatPanel.tsx` | Shared chat UI; sends all messages to `POST /api/generate`; renders `needs_clarification` as option buttons; shows escape hatch banner when sidebar/navbar is hidden as a whole |
+| `AppShell` | `components/layout/AppShell.tsx` | Root layout: conditionally renders `<Sidebar />` based on `sidebarSpec.visible !== false` |
+| `Sidebar` | `components/layout/Sidebar.tsx` | Spec-driven nav; redirects to first visible workspace when active domain is hidden |
+| `DomainPage` | `pages/DomainPage.tsx` | Domain header + tab bar; hides entire tab bar when `navSpec.visible === false`; shows "N hidden" restore button when individual tabs are hidden |
 
 ---
 
 ## 2. What data is sent to the backend — exact shapes
 
 ### `GET /api/apps`
-**Request:** no body, no params.  
-**Response:** `{ apps: [{ id: string; label: string }] }`  
-Example: `{ apps: [{ id: "engineering", label: "Engineering" }, …] }`
+**Request:** no body, no params.
+**Response:** `{ apps: [{ id: string; label: string }] }`
 
 ---
 
 ### `GET /api/schema?app=<id>`
-**Request:** query param `app=engineering`.  
-**Response:** `{ appId: string; vocabulary: AppVocabulary }`  
-`AppVocabulary` = `{ layouts: AppLayoutDef[]; fields: AppFieldDef[] }`  
-`AppLayoutDef` = `{ name, description, requiresGroupBy? }`  
-`AppFieldDef` = `{ key, type, description, filterable?, sortable?, groupable?, enumValues? }`
+**Request:** query param `app=engineering`.
+**Response:** `{ appId: string; vocabulary: AppVocabulary }`
+`AppVocabulary` = `{ layouts: AppLayoutDef[]; fields: AppFieldDef[] }`
 
 ---
 
 ### `GET /api/items?app=<id>`
-**Request:** query param `app=engineering`. No filters/sort/limit are sent by the frontend client (`fetchItems` only passes `app=`). The backend supports filter/sort/limit query params but `client.ts` does not use them — all item shaping is done client-side.  
+**Request:** query param `app=engineering`. The frontend client sends only `?app=<id>` — all item shaping (filter/sort/limit) is done client-side via `ViewRenderer` applying the current spec.
 **Response:** `{ appId: string; count: number; items: Item[] }`
 
 ---
 
 ### `POST /api/generate`
+
 **Request body:**
 ```json
 {
-  "message":       "hide Finance, show only critical bugs",
+  "message":       "show only critical bugs grouped by assignee",
   "appId":         "engineering",
   "activeSurface": "dashboard",
   "currentSpecs": {
-    "sidebar":   { "version": "1.0", "items": [{ "key": "engineering", "visible": true }, …] },
+    "sidebar":   { "version": "1.0", "visible": true, "items": [{ "key": "engineering", "visible": true }, …] },
+    "nav":       { "version": "1.0", "visible": true, "hiddenTabs": [] },
     "dashboard": { "version": "1.0", "layout": "kanban", "fields": […], … }
   },
-  "forceSurface": "sidebar"
-}
-```
-`forceSurface` is omitted on normal sends; it is set when the user picks an option after a `needs_clarification` response.  
-`currentSpecs` always includes `sidebar` and the key matching `activeSurface`; either may be `null` if no spec has been saved for that slot.
-
-**Response (applied):** `{ status: "applied", targetSurface: string, spec: BaseViewSpec | SidebarSpec, message: string }`  
-```json
-{
-  "status": "applied",
-  "targetSurface": "sidebar",
-  "spec": { "version": "1.0", "items": [{ "key": "finance", "visible": false }, …] },
-  "message": "Hid Finance from the sidebar"
+  "forceSurface": "view"
 }
 ```
 
-**Response (needs clarification):** `{ status: "needs_clarification", question: string, options: ClarificationOption[] }`  
+`forceSurface` is omitted on normal sends; set when the user picks an option after `needs_clarification`.
+`currentSpecs` always includes `sidebar`, `nav`, and the key matching `activeSurface`; any may be `null`.
+
+**Response — applied:**
 ```json
 {
-  "status": "needs_clarification",
-  "question": "Do you want to hide 'Product' from the sidebar navigation, or filter the view to show only Product-type items?",
+  "status":        "applied",
+  "targetSurface": "view",
+  "targetAppId":   "engineering",
+  "targetSection": "dashboard",
+  "spec":          { "version": "1.0", "layout": "kanban", "groupBy": "assignee", "filters": [{ "field": "priority", "op": "eq", "value": "critical" }], … },
+  "message":       "Filtered to critical priority, grouped by assignee."
+}
+```
+
+`targetAppId` is `"global"` when `targetSurface === "sidebar"` (sidebar is global, not per-domain).
+`targetSection` is `"sidebar"`, `"nav"`, or the active section string.
+
+**Response — needs clarification:**
+```json
+{
+  "status":   "needs_clarification",
+  "question": "Did you want to hide the Finance tab in the navbar, or hide the Finance workspace from the sidebar?",
   "options": [
-    { "surface": "sidebar", "label": "Hide Product from the sidebar navigation" },
-    { "surface": "view",    "label": "Filter the data view to Product items only" }
+    { "surface": "nav",     "label": "Hide Finance tab",             "hint": "Hide Finance tab" },
+    { "surface": "sidebar", "label": "Hide Finance from the panel",  "hint": "Hide Finance from the sidebar" }
   ]
 }
 ```
-**Response (validation failure):** `422 { error: "AI returned an invalid SidebarSpec"|"AI returned an invalid ViewSpec", details: string[] }`  
-**Response (quota):** `500 { error: "AI rate limit hit — wait a few seconds and try again" }`
 
----
+The `hint` on each option is the exact message the frontend re-sends when the user clicks it, with `forceSurface` set to that option's surface. The backend skips conflict detection when `forceSurface` is present.
 
-### `POST /api/generate-spec`
-**Request body:**
-```json
-{
-  "appId": "engineering",
-  "description": "show only in-progress items (for Dashboard view)",
-  "currentSpec": { "version": "1.0", "layout": "kanban", "fields": […], … }
-}
-```
-`currentSpec` is omitted on the first call; included on subsequent calls so the model makes incremental modifications.  
-The section label ("for Dashboard view") is appended to `description` by `GlobalChatPanel` before sending — the backend does NOT receive a separate `section` field.  
-**Response (success):** `{ appId: string; spec: BaseViewSpec }`  
-```json
-{
-  "appId": "engineering",
-  "spec": {
-    "version": "1.0",
-    "name": "In-progress items",
-    "description": "Shows only items currently in progress",
-    "layout": "kanban",
-    "fields": [{ "key": "title", "visible": true }, …],
-    "groupBy": "status",
-    "filters": [{ "field": "status", "op": "eq", "value": "in-progress" }],
-    "sort": { "field": "updatedAt", "direction": "desc" },
-    "limit": 100
-  }
-}
-```
-**Response (validation failure):** `422 { error: "Agent returned an invalid ViewSpec", details: string[] }`  
-**Response (quota):** `500 { error: "AI rate limit hit — wait a few seconds and try again" }`
-
----
-
-### `POST /api/generate-sidebar-spec`
-**Request body:**
-```json
-{
-  "description": "hide finance",
-  "currentSpec": { "version": "1.0", "items": [{ "key": "engineering", "visible": true }, …] }
-}
-```
-`currentSpec` omitted on first call.  
-**Response (success):** `{ spec: SidebarSpec }`  
-```json
-{
-  "spec": {
-    "version": "1.0",
-    "items": [
-      { "key": "engineering", "visible": true },
-      { "key": "product",     "visible": true },
-      { "key": "finance",     "visible": false }
-    ]
-  }
-}
-```
+**Response — validation failure:** `422 { error: "AI returned an invalid SidebarSpec"|"AI returned an invalid NavSpec"|"AI returned an invalid ViewSpec", details: string[] }`
+**Response — transient AI error:** `503 { error: "Gemini is temporarily overloaded — please try again in a moment" }`
+**Response — quota:** `500 { error: "AI rate limit hit — wait a few seconds and try again" }`
 
 ---
 
 ### WebSocket `ws://host/live?app=<id>`
-**On connect:** client sends nothing beyond the query param `?app=<id>`.  
-**Server → client on connect:** `{ "type": "connected", "appId": "engineering" }`  
-**Server → client on data change:** `{ "type": "items:changed", "appId": "engineering", "items": [/* full item array */] }`  
-Live events carry the full item list — no diffing. The client replaces its local state entirely.  
-The frontend `useLiveData` validates `event.appId === activeAppId.current` before accepting to guard against stale messages during domain switches.
+**On connect:** client sends nothing beyond `?app=<id>`.
+**Server → client on connect:** `{ "type": "connected", "appId": "engineering" }`
+**Server → client on data change:** `{ "type": "items:changed", "appId": "engineering", "items": [/* full item array */] }`
+Live events carry the full item list — no diffing. The client replaces its local state entirely.
+`useLiveData` validates `event.appId === activeAppId.current` before accepting to guard against stale messages during domain switches.
 
 ---
 
@@ -221,63 +212,51 @@ The frontend `useLiveData` validates `event.appId === activeAppId.current` befor
 ### Generate-a-spec flow (unified)
 
 ```
-1. User types in GlobalChatPanel input → presses Enter or Send
-   File: GlobalChatPanel.tsx → handleSend() → sendToBackend(message)
+1. User types in GlobalChatPanel → handleSend() → sendToBackend(message)
 
-2. Frontend collects context — no routing decision:
+2. Frontend collects context — makes NO routing decision:
    - appId from AppContext
    - activeSection from useCurrentSection() (URL) or sectionOverride
-   - currentSpecs: { sidebar: sidebarSpec, [activeSection]: getSpec(appId, activeSection) }
-   File: GlobalChatPanel.tsx → sendToBackend()
+   - currentSpecs: { sidebar: sidebarSpec, nav: navSpec, [activeSection]: getSpec(appId, activeSection) }
 
-3. Frontend calls generate() — single endpoint, all routing delegated:
-   POST /api/generate { message, appId, activeSurface, currentSpecs, forceSurface? }
-   File: api/client.ts → generate()
+3. POST /api/generate { message, appId, activeSurface, currentSpecs, forceSurface? }
 
-4. Backend route (generate.ts) builds SurfaceContext[] from live registry:
-   - sidebarCtx: vocab from sidebarVocab; current visibility from specs['sidebar']
-   - viewCtx: layouts + fields from bundle.vocabulary; current spec from specs[section]
-   File: routes/generate.ts
+4. Route (generate.ts) resolves surfaces generically:
+   ctx = { appId, section }
+   surfaces = surfaceRegistry.resolve(appId, section).map(def => ({
+     id, label: def.buildLabel?.(ctx) ?? def.label,
+     purpose, specSchema, clarificationGuidance,
+     vocabText: def.buildVocabText(specs[def.specKey(ctx)] ?? null),
+     currentSpec: specs[def.specKey(ctx)] ?? null,
+   }))
+   → produces [sidebarCtx, viewCtx, navCtx] without naming any surface
 
-5. UnifiedGenerator.generate() (unified-generator.ts):
-   - Single Gemini 2.5 Flash call (thinkingBudget: 0, maxOutputTokens: 2048, temperature: 0.1)
-   - System prompt lists all surface vocabularies with their current specs
-   - AI routes by vocabulary match (field keys, enum values, sidebar item keys/labels)
-   - Returns status="applied" { targetSurface, spec, message }
-          | status="needs_clarification" { question, options }
+5. UnifiedGenerator.generate() — single Gemini 2.5 Flash call:
+   - thinkingBudget: 0, maxOutputTokens: 2048, temperature: 0.1
+   - System prompt: surface-agnostic routing rules + all surface blocks with clarificationGuidance
+   - Each surface's vocabText includes QUALIFIER NOTE if disambiguation is needed
+   - Returns { status: "applied", targetSurface, spec, message }
+           | { status: "needs_clarification", question, options[] }
 
-6a. If needs_clarification:
+6a. needs_clarification:
    - Route returns immediately: { status, question, options }
    - GlobalChatPanel renders amber question bubble + indigo option buttons
-   - User clicks an option → sendToBackend(originalMessage, surface) with forceSurface set
-   - Loop restarts at step 3 with forceSurface; UnifiedGenerator skips conflict detection
+   - User clicks option → sendToBackend(opt.hint ?? originalMessage, opt.surface)
+     with forceSurface set; UnifiedGenerator skips conflict detection
 
-6b. If applied:
-   Spec validation runs before the route returns:
-   - targetSurface === 'sidebar': buildSidebarSpecSchema(sidebarVocab).parse(rawSpec)
-   - otherwise: bundle.validator.assert(rawSpec) — runs buildViewSpecSchema(vocab) Zod schema
-   Schema enforces: layout ∈ vocabulary layouts, field keys ∈ vocabulary fields,
-     filter fields ∈ filterable fields, groupBy ∈ groupable fields, limit 1–200
-   An invalid spec returns 422 — never reaches the client.
-   File: routes/generate.ts; engine/unified-generator.ts; engine/spec-validator.ts
+6b. applied — spec validation:
+   targetSurface === "sidebar" → buildSidebarSpecSchema(sidebarVocab).parse(rawSpec)
+   targetSurface === "nav"     → navSpecSchema.parse(rawSpec)   [Zod, tab keys from NAV_TABS]
+   else (view)                 → bundle.validator.assert(rawSpec)  [SpecValidator, vocab-derived Zod]
+   Invalid spec → 422, never reaches frontend
 
-7. Backend returns { status: "applied", targetSurface, spec, message }
+7. Route returns { status: "applied", targetSurface, targetAppId, targetSection, spec, message }
 
-8. GlobalChatPanel applies the spec to the surface the backend chose:
-   - targetSurface === 'sidebar': setSpec('global', 'sidebar', spec)
-   - otherwise: setSpec(appId, activeSection, spec)
-   File: GlobalChatPanel.tsx → sendToBackend()
+8. GlobalChatPanel: setSpec(targetAppId, targetSection, spec)
+   GlobalAiContext: updates in-memory cache + localStorage + specHistory (view specs only)
+   → all useGlobalSpec() consumers re-render
 
-9. setSpec in GlobalAiContext:
-   - Updates in-memory cache (Map ref)
-   - Writes to localStorage
-   - Pushes to specHistory
-   - Bumps setSpecVersion counter → all useGlobalSpec consumers re-render
-
-10. Page component (DashboardPage etc.) re-renders:
-    - useGlobalSpec returns the new spec
-    - Passes spec + items to layout component (kanban groups, table columns, etc.)
-    - ViewRenderer (when used) re-applies filters/sort/limit client-side and draws
+9. Page re-renders: useGlobalSpec returns new spec → layout component draws updated view
 ```
 
 ---
@@ -285,32 +264,19 @@ The frontend `useLiveData` validates `event.appId === activeAppId.current` befor
 ### Live-update flow
 
 ```
-1. Dev endpoint called: POST /api/items/dev/mutate?app=engineering
-   Body: { id: "bug-001", patch: { status: "done" } }
-   File: items.ts line 62–76
+1. POST /api/items/dev/mutate?app=engineering  { id: "ENG-001", patch: { status: "done" } }
 
 2. bundle.store.simulateChange(id, patch)
-   File: data-store.ts → simulateChange()
-   - Mutates items[index] in-place with spread
-   - Emits 'change' event: { id, patch, items: fullArray }
+   → mutates item in-place; emits 'change' event with full item array
 
-3. LiveChannel receives 'change':
-   File: live-channel.ts → attachStore() listener
-   - Calls broadcast(appId, { type: 'items:changed', appId, items })
-   - Iterates the domain's room Set; sends JSON to every open WebSocket
+3. LiveChannel broadcast(appId, { type: 'items:changed', appId, items })
+   → sends JSON to every WebSocket in the domain's room Set
 
-4. Each connected client's useLiveData receives 'items:changed':
-   File: hooks/useLiveData.ts line 76–82
-   - Validates appId matches current activeAppId ref
-   - Calls setState({ items: event.items })  ← full replace, no diff
+4. useLiveData receives 'items:changed'
+   → validates appId matches; calls setState({ items: event.items }) — full replace
 
-5. AppContext propagates new items to all consumers via React re-render
-
-6. Each page re-renders with new items:
-   - ViewRenderer.applySpec() re-applies the current spec's filters/sort/limit
-     (client-side, no AI call, no new fetch)
-   - Every open section (dashboard, explorer, analytics) updates simultaneously
-   - No spec changes — only the data changes
+5. AppContext propagates new items; all pages re-render
+   ViewRenderer re-applies current spec filters/sort/limit — no AI call, no fetch
 ```
 
 ---
@@ -319,105 +285,139 @@ The frontend `useLiveData` validates `event.appId === activeAppId.current` befor
 
 ```
 1. App mounts → AppProvider fetches GET /api/apps → sets apps list
-   AppProvider fetches GET /api/schema?app=engineering → sets vocabulary
-   useLiveData fetches GET /api/items?app=engineering → sets items
-   useLiveData opens WebSocket ws://host/live?app=engineering
+   AppProvider fetches GET /api/schema?app=<first> → sets vocabulary
+   useLiveData fetches GET /api/items?app=<first> → sets items
+   useLiveData opens WebSocket ws://host/live?app=<first>
+   AppContext uses cancelled-flag pattern to guard against vocabulary race on domain switch
 
 2. User navigates to /#/engineering/explorer:
-   - useCurrentSection() reads 'explorer' from URL
-   - ExplorerPage mounts, calls useGlobalSpec('engineering', 'explorer')
+   useCurrentSection() reads 'explorer' from URL
+   ExplorerPage mounts → useGlobalSpec('engineering', 'explorer')
 
 3. useGlobalSpec calls getSpec('engineering', 'explorer'):
-   - Checks in-memory cache: cache.current.get('engineering:explorer')
-   - On cold miss: reads localStorage key 'dsi:spec:engineering:explorer'
-   - Parses and caches the stored spec (or null if none)
+   → checks in-memory cache: cache.current.get('engineering:explorer')
+   → cold miss: reads localStorage 'dsi:spec:engineering:explorer'
+   → parses and caches (or null)
 
 4. ExplorerPage renders using stored spec:
-   - If spec: columns from spec.fields, filters applied, sort from spec.sort
-   - If null: default — all vocabulary columns, no filters, no sort
+   spec present → apply columns/filters/sort from spec
+   null → default (all vocabulary columns, no filters)
 
-5. User selects a different domain (Product):
-   - setAppId('product') → AppContext refetches schema + items for 'product'
-   - useLiveData closes old WebSocket, opens new one for 'product'
-   - All pages still use useGlobalSpec but now with appId='product'
-   - 'product:explorer' is a separate cache slot — spec is independent
+5. User switches domain (Product):
+   setAppId('product') → AppContext refetches schema + items for 'product'
+   useLiveData closes old WebSocket, opens new for 'product'
+   'product:explorer' is a separate cache slot — completely independent spec
 ```
 
 ---
 
-## 4. Per-context separation — what the code actually does
+## 4. Per-context separation
 
-**Storage key:** `dsi:spec:${appId}:${section}` for content surfaces; `dsi:sidebar-spec` for sidebar.
+**Storage key:** `dsi:spec:${appId}:${section}` for view surfaces; `dsi:spec:global:sidebar` for sidebar; `dsi:spec:${appId}:nav` for nav.
 
-**Isolation guarantee:** `engineering:dashboard` and `product:dashboard` are different keys in both the in-memory cache Map and localStorage. A change in one slot never touches another.
+**Isolation guarantee:** each `appId:section` combination is an independent slot in both the in-memory cache Map and localStorage. A change in one slot never affects another.
 
-**What is NOT separated:** there is no userId. This is a single-user prototype. All specs for a given `appId:section` on the same browser share the same localStorage key. If multi-user support is added, the key must incorporate a userId.
+**What is NOT separated:** there is no userId. This is a single-user prototype. All specs for a given `appId:section` on the same browser share the same localStorage key.
 
-**Known cache-staleness bug in spec restore:**  
-`specHistory.restoreTo()` writes directly to `localStorage['dsi:spec:${appId}:${tab}']` but does NOT call `GlobalAiContext.setSpec()`. The in-memory cache in `GlobalAiContext` is therefore NOT invalidated. If the cache already holds a value for that `appId:section` slot (because the user visited that page earlier in the same session), navigating to that page after restoring will serve the stale cached value — the restored spec is ignored until the user hard-refreshes.  
-The fix: call `setSpec(appId, tab, entry.spec)` from `SettingsPage.handleRestore()` instead of calling `specHistory.restoreTo()` directly.
+**specHistory isolation:** only view specs are pushed to history. The `GlobalAiContext.setSpec` call guards with `section !== 'sidebar' && section !== 'nav'` before pushing. SettingsPage filters history entries to `e.spec.layout !== undefined` as a secondary guard, preventing nav/sidebar entries from appearing in the restore UI.
 
 ---
 
 ## 5. The safety boundary
 
-**The spec vocabulary contains only display verbs.** Looking at `buildViewSpecSchema`:
+**The spec vocabulary contains only display verbs.** In `buildViewSpecSchema`:
 - `layout` — which component to render (table, kanban, feed, cards)
-- `fields[]` — which columns to show and in what order; optional display label
-- `groupBy` — which field to group columns by (kanban only)
-- `filters[]` — hide items from view (`eq`, `neq`, `in`, `contains`); the schema comment says explicitly "HIDE items from view — they never delete or mutate data"
+- `fields[]` — which columns to show, in what order, optional display label rename
+- `groupBy` — field to group by (kanban only; must be a `groupable` field)
+- `filters[]` — hide items from view (eq/neq/in/contains); never delete or mutate data
 - `sort` — display ordering
-- `limit` — how many items to show (max 200)
+- `limit` — how many items to show (1–200)
 
-No verb for create, update, delete, or any state mutation exists anywhere in the Zod schema. The schema is derived from the vocabulary at server startup; no mutation verb can be smuggled in via the vocabulary file because there is nowhere in `AppVocabulary` for mutation operations.
+No create, update, or delete verb exists anywhere in the Zod schema. The schema is derived from `AppVocabulary` at startup; no mutation verb can enter via the vocabulary file because `AppVocabulary` has no mutation field type.
 
-**Where validation rejects out-of-vocabulary specs:**  
-`SpecValidator.assert()` in `spec-validator.ts` runs the Zod schema before any spec reaches the frontend. A spec with an unknown layout name, an unknown field key, or an out-of-range limit will throw `ValidatorError` and the route returns 422. The model output never reaches the client if it fails validation.
+**Where validation rejects invalid specs:**
+`SpecValidator.assert()` in `spec-validator.ts` runs the vocabulary-derived Zod schema before the route returns. Unknown layout names, unknown field keys, non-groupable fields in `groupBy`, or out-of-range `limit` all throw `ValidatorError` → 422 response. The AI output never reaches the frontend if it fails validation.
 
-**Destructive-sounding requests ("mark all as done", "delete done items"):**  
-There is no explicit intent-detection layer. The safety is structural: the model is constrained to output a valid spec shape, and that shape has no mutation verbs. "Mark all as done" is interpreted by the model as the nearest display change (e.g., `filters: [{ field: "status", op: "eq", value: "done" }]` — showing only done items). The system prompt says "Filters HIDE data from view; they never delete or modify it." Data is never mutated on behalf of the AI by construction.
+The same enforcement applies to sidebar and nav specs via their own Zod schemas (`buildSidebarSpecSchema`, `navSpecSchema`).
 
----
-
-## 6. What the backend is and is NOT responsible for
-
-### What the backend IS responsible for
-
-1. **Owning domain data.** Each domain's `DataStore` holds the authoritative in-memory item array. All reads go through `DataStore.query()`. The backend is the single source of truth for item data.
-
-2. **Serving read-only item queries.** `GET /api/items` applies `QueryParams` (filter, sort, limit) server-side and returns items. No item write path exists except the dev simulation endpoint (`POST /api/items/dev/mutate`) which is a test harness, not a production feature.
-
-3. **Holding each domain's vocabulary.** `AppVocabulary` for each domain lives in the backend domain files. It is served to the frontend via `GET /api/schema` and used to build both the model system prompt and the Zod validation schema.
-
-4. **Running the AI call and validating the result.** `SpecGenerator.generate()` calls Gemini 2.5 Flash, then `SpecValidator.assert()` runs the Zod schema. The model output is validated before the route returns it. This is the safety gate — an invalid spec never reaches the frontend.
-
-5. **Selecting the correct domain bundle per request.** Both `agentRouter` and `itemsRouter` index into `AppRegistry` by `appId`. An unknown `appId` returns 400 immediately.
-
-6. **Managing WebSocket connections and broadcasting live data.** `LiveChannel` maintains per-domain socket rooms and delivers `items:changed` events to every subscribed client whenever `DataStore` emits `'change'`.
-
-### What the backend does NOT do
-
-- **Does not store user specs.** In the prototype, specs are stored entirely in the browser's `localStorage` managed by `GlobalAiContext`. The backend returns a spec on request and immediately discards it — it holds no spec state whatsoever. In a production system, spec storage would move to a backend database keyed by `userId + appId + section`.
-
-- **Does not render anything.** The backend returns data (items) and instructions (specs). All rendering is done by React components in the browser.
-
-- **Does not mutate data on behalf of the AI.** Spec generation produces a display-only JSON object. There is no path from the AI output to a `DataStore` write.
-
-- **Does not track users.** No auth, no sessions, no multi-tenancy. Every request is treated identically regardless of who made it.
-
-- **Does not push initial item state on WebSocket connect.** On WebSocket connect, the backend sends `{ type: "connected", appId }` only. The client fetches initial items via REST independently; the WebSocket is used only for incremental change events.
+**Destructive-sounding requests ("delete done items"):** the system prompt tells the AI that filters hide data from view — they never delete. The spec shape has no mutation verbs. The model is constrained to produce a valid spec, and valid specs can only shape the display. Harm is impossible by construction.
 
 ---
 
-## Additional discrepancies from the idealized description
+## 6. The surface-agnostic AI design
 
-| What the description said | What the code does |
+### System prompt
+
+The system prompt in `unified-generator.ts` contains **no surface names** (no "sidebar", "nav", "view", "dashboard", "explorer", etc.). Verified at build time via the prompt template.
+
+Generic sections that remain:
+- Routing rules (parse by meaning → check vocabulary → 1 match → apply; 2+ → clarify; 0 → fallback)
+- "Follow each surface's clarification guidance" — no per-surface option rules
+- "Read qualifier notes in vocabText before routing"
+- Unmappable fallback instructions
+- Output JSON schema
+
+### Surface-specific behavior as data
+
+| Behavior | Was in prompt | Now in |
+|---|---|---|
+| "ONE option per sidebar item + one for whole panel" | Hardcoded rule | `sidebar.clarificationGuidance` |
+| "ONE option per tab + one for whole navbar" | Hardcoded rule | `nav.clarificationGuidance` |
+| "Tab names are qualifiers not layout names" | ⚠ CRITICAL block | `nav.buildVocabText()` QUALIFIER NOTE |
+| `"show the navbar"` maps to nav surface | RESTORE commands block | `nav.purpose` (declares restore phrases) |
+| `"show the sidebar"` maps to sidebar surface | RESTORE commands block | `sidebar.purpose` (declares restore phrases) |
+| View option hint format | Hardcoded rule | `view.clarificationGuidance` |
+
+### Extending with a new surface type
+
+The generate route loop:
+```typescript
+const surfaces = surfaceRegistry.resolve(appId, section).map((def) => {
+  const spec = specs[def.specKey(ctx)] ?? null;
+  return { id, label, purpose, specSchema, clarificationGuidance, vocabText, currentSpec };
+});
+```
+
+Adding a new surface:
+1. Create a `SurfaceDef` in `surface-registry.ts`
+2. Include it in `resolve()`
+3. Add its Zod validation in the `generate.ts` validation block
+
+Route changes: 3 lines (validation block). Prompt changes: zero.
+
+---
+
+## 7. What the backend is and is NOT responsible for
+
+### Is responsible for
+
+1. **Owning domain data.** Each domain's `DataStore` holds the authoritative in-memory item array.
+2. **Serving read-only item queries.** `GET /api/items` applies `QueryParams` server-side.
+3. **Holding each domain's vocabulary.** Served via `GET /api/schema`; used to build the Gemini prompt and the Zod validation schema.
+4. **Running the AI call and validating the result.** `UnifiedGenerator` calls Gemini; spec validation runs before the route returns. This is the safety gate.
+5. **Selecting the correct domain bundle per request.** An unknown `appId` returns 400 immediately.
+6. **Managing WebSocket connections.** `LiveChannel` delivers `items:changed` to every subscribed client.
+
+### Is NOT responsible for
+
+- **Storing user specs.** Specs are in the browser's `localStorage` (`GlobalAiContext`). The backend holds no spec state.
+- **Rendering anything.** Data and specs are returned; all rendering is done in React.
+- **Mutating data on behalf of the AI.** There is no path from AI output to a `DataStore` write.
+- **Tracking users.** No auth, sessions, or multi-tenancy.
+- **Pushing initial item state on WebSocket connect.** The client fetches items via REST independently.
+
+---
+
+## 8. Known discrepancies / notes
+
+| What earlier docs said | What the code does |
 |---|---|
-| "calls Anthropic API" / "ANTHROPIC_API_KEY" | Uses **Google Gemini 2.5 Flash** via `@google/generative-ai`. `GEMINI_API_KEY` in `backend/.env`. |
-| SpecGenerator docstring says "gemini-2.0-flash" | Actual model string in code: `'gemini-2.5-flash'` (stale comment). |
-| "stored per user, per domain, per section" | **No userId in the prototype.** Storage key is `dsi:spec:${appId}:${section}` only. |
-| "`ISpecRepository`, `LocalStorageSpecRepository`, `SpecStore`" are active frontend engine classes | They **exist** in `frontend/src/engine/` but are **not used** by any page. Active spec storage is `GlobalAiContext` + raw localStorage reads. |
-| Section is part of the AI request context | Section is sent as `activeSurface` field in `POST /api/generate`. In the legacy `/api/generate-spec`, section was appended as a suffix to the description string — that route is still present but no longer used by `GlobalChatPanel`. |
-| Frontend decides which API to call (sidebar vs view) | **Removed.** `GlobalChatPanel` previously used `isSidebarIntent()` keyword heuristics. Now it sends all messages to `POST /api/generate` and the backend routes by vocabulary match. |
-| Two GoogleGenerativeAI clients | `buildAppRegistry()` creates one client for all `SpecGenerator` instances. `index.ts` creates a **second separate client** for `SidebarGenerator` and a **third** for `UnifiedGenerator`. All use the same API key. |
-| `fetchItems` passes filters/sort | `client.ts` `fetchItems()` sends only `?app=<id>`. Server-side filtering capability exists but the frontend client never uses it. |
+| "calls Anthropic API" / `ANTHROPIC_API_KEY` | Uses **Google Gemini 2.5 Flash** via `@google/generative-ai`. Key is `GEMINI_API_KEY` in `backend/.env`. |
+| `SpecGenerator`, `SidebarGenerator` classes | **Removed.** Replaced entirely by `UnifiedGenerator`. |
+| Legacy routes `/api/generate-spec`, `/api/generate-sidebar-spec` | **Removed.** Only `POST /api/generate` exists. |
+| `ClarificationOption` is `{ surface, label }` | Now `{ surface, label, hint? }`. `hint` is the exact re-send message for the chosen option. |
+| `ISpecRepository`, `LocalStorageSpecRepository`, `SpecStore` | **Exist** in `frontend/src/engine/` but are **not used** by any page. Active spec storage is `GlobalAiContext`. |
+| `fetchItems` passes filters/sort | `client.ts` `fetchItems()` sends only `?app=<id>`. Server-side filtering capability exists but the client does not use it — all item shaping is done client-side. |
+| SurfaceContext has 5 fields | Now has 7 fields: adds `clarificationGuidance` and keeps all previous fields. |
+| Route hardcodes 3 surfaces | Route calls `surfaceRegistry.resolve(appId, section).map(...)` — generic, no surface names. |
+| System prompt names surfaces | System prompt is fully surface-agnostic. All surface-specific rules live in `SurfaceDef` metadata. |
