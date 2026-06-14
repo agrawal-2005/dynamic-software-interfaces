@@ -182,9 +182,15 @@ export function generateRouter(
         }
       }
 
+      // Compute storage coordinates so the frontend needs no surface-name knowledge.
+      const targetAppId     = targetSurface === 'sidebar' ? 'global' : appId;
+      const targetSection   = targetSurface === 'sidebar' ? 'sidebar' : section;
+
       res.json({
         status:        'applied',
         targetSurface,
+        targetAppId,
+        targetSection,
         spec:          validatedSpec,
         message:       confirmMsg,
       });

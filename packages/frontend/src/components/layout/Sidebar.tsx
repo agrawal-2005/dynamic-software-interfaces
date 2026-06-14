@@ -20,7 +20,7 @@ const DOMAIN_COLORS: Record<string, string> = {
  * What it cannot do:      delete workspaces, change routes, affect other users' data
  *
  * Vocabulary:             derived from the apps list (same source as app-registry on backend)
- * Generator:              POST /api/generate-sidebar-spec → SidebarSpec (Zod-validated)
+ * Generator:              POST /api/generate → UnifiedGenerator → SidebarSpec (Zod-validated)
  * Isolation:              hiding an item = visible:false in spec only, workspace still exists
  */
 export function Sidebar() {

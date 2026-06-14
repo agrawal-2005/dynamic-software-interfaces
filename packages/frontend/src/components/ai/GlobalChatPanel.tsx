@@ -153,14 +153,11 @@ export function GlobalChatPanel() {
         return;
       }
 
-      // Apply the spec to the surface the backend chose
-      const { targetSurface, spec, message: confirmMsg } = response;
-
-      if (targetSurface === 'sidebar') {
-        setSpec('global', 'sidebar', spec as SidebarSpec);
-      } else {
-        setSpec(appId, activeSection, spec as BaseViewSpec);
-      }
+      // Apply the spec to the storage slot the backend computed.
+      // targetAppId and targetSection are pre-computed by the backend so
+      // the frontend makes no decisions based on surface names.
+      const { targetAppId, targetSection, spec, message: confirmMsg } = response;
+      setSpec(targetAppId, targetSection, spec as BaseViewSpec | SidebarSpec);
 
       setMessages((prev) => [
         ...prev,

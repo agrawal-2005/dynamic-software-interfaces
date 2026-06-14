@@ -27,8 +27,18 @@ export interface ClarificationOption {
 export type GenerateResponse =
   | {
       status: 'applied';
-      /** 'sidebar' or 'view' — tells the frontend which slot to write the spec into. */
+      /** Internal surface id, e.g. 'sidebar' or 'view'. */
       targetSurface: string;
+      /**
+       * The appId to pass to setSpec — 'global' for cross-domain surfaces (e.g. sidebar),
+       * or the active domain appId for per-domain surfaces. Computed by the backend.
+       */
+      targetAppId: string;
+      /**
+       * The section key to pass to setSpec, e.g. 'sidebar' or 'dashboard'.
+       * Computed by the backend so the frontend needs no knowledge of surface names.
+       */
+      targetSection: string;
       spec: unknown;
       /** Human-readable summary: WHAT changed and WHERE, e.g. "Hid Engineering from the sidebar". */
       message: string;
