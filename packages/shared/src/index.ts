@@ -9,3 +9,4 @@ export type { BaseViewSpec, SpecVersion } from './spec/view-spec.types';
 export type { SidebarNavItem, SidebarVocabulary, SidebarItemSpec, SidebarSpec } from './spec/sidebar-spec.types';
 export { buildSidebarSpecSchema } from './spec/sidebar-spec.schema';
 export type { SidebarSpecSchema } from './spec/sidebar-spec.schema';
+export type { GenerateRequest, GenerateResponse, ClarificationOption } from './types/generate';

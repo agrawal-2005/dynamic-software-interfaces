@@ -1,4 +1,4 @@
-import type { AppVocabulary, BaseViewSpec, Item, SidebarSpec } from '@dsi/shared';
+import type { AppVocabulary, BaseViewSpec, Item, SidebarSpec, GenerateRequest, GenerateResponse } from '@dsi/shared';
 
 const BASE = '/api';
 
@@ -57,4 +57,23 @@ export async function generateSpec(appId: string, description: string, currentSp
   }
   const data = await res.json() as { spec: BaseViewSpec };
   return data.spec;
+}
+
+/**
+ * Unified routing + spec-generation endpoint.
+ * The backend AI receives all surface vocabularies, determines the target surface
+ * by meaning alone, and returns either a ready-to-apply spec or a clarification prompt.
+ * The frontend makes no routing decision.
+ */
+export async function generate(req: GenerateRequest): Promise<GenerateResponse> {
+  const res = await fetch(`${BASE}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `generate failed: ${res.status}`);
+  }
+  return res.json() as Promise<GenerateResponse>;
 }

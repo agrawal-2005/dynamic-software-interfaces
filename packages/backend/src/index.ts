@@ -10,6 +10,8 @@ import { schemaRouter } from './routes/schema';
 import { itemsRouter } from './routes/items';
 import { agentRouter } from './routes/agent';
 import { sidebarAgentRouter } from './routes/sidebar-agent';
+import { generateRouter } from './routes/generate';
+import { UnifiedGenerator } from './engine/unified-generator';
 
 const app = express();
 app.use(express.json());
@@ -35,6 +37,7 @@ const sidebarVocab = {
 };
 const geminiClient  = new GoogleGenerativeAI(config.geminiApiKey);
 const sidebarGen    = new SidebarGenerator(geminiClient, sidebarVocab);
+const unifiedGen    = new UnifiedGenerator(geminiClient);
 console.log(`Sidebar vocabulary: ${sidebarVocab.items.map((i) => i.key).join(', ')}`);
 
 // LiveChannel: one instance manages all domains' WebSocket rooms.
@@ -47,8 +50,9 @@ for (const bundle of Object.values(registry)) {
 app.use('/api/apps',                  appsRouter(registry));
 app.use('/api/schema',               schemaRouter(registry));
 app.use('/api/items',                itemsRouter(registry));
-app.use('/api/generate-spec',        agentRouter(registry));
+app.use('/api/generate-spec',         agentRouter(registry));
 app.use('/api/generate-sidebar-spec', sidebarAgentRouter(sidebarGen));
+app.use('/api/generate',              generateRouter(registry, sidebarVocab, unifiedGen));
 
 app.get('/api/health', (_req, res) => {
   const connections = Object.fromEntries(
