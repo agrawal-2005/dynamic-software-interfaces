@@ -83,6 +83,12 @@ export function generateRouter(
         'Items (can be hidden, shown, renamed, or reordered):\n' +
         sidebarItemLines.join('\n'),
       currentSpec: sidebarSpec,
+      specSchema:
+        '{\n' +
+        '  "version": "1.0",\n' +
+        '  "items": [{ "key": "<item key>", "label": "<optional rename, omit if unchanged>", "visible": true|false }]\n' +
+        '}\n' +
+        'REQUIREMENT: every vocabulary item must appear in items[].',
     };
 
     // 2. View surface — active domain vocabulary
@@ -111,6 +117,20 @@ export function generateRouter(
       vocabText:
         `Layouts:\n${layoutLines.join('\n')}\n\nFields:\n${fieldLines.join('\n')}`,
       currentSpec: specs[section] ?? null,
+      specSchema:
+        '{\n' +
+        '  "version": "1.0",\n' +
+        '  "name": "<short label ≤80 chars>",\n' +
+        '  "layout": "<layout name>",\n' +
+        '  "fields": [{ "key": "<field key>", "label": "<optional rename>", "visible": true|false }],\n' +
+        '  "groupBy": "<groupable field key — omit if not needed>",\n' +
+        '  "filters": [{ "field": "<filterable key>", "op": "eq|neq|in|contains", "value": "<string or string[]>" }],\n' +
+        '  "sort": { "field": "<sortable key>", "direction": "asc|desc" },\n' +
+        '  "limit": 100,\n' +
+        '  "valueLabels": { "<fieldKey>": { "<rawValue>": "<display label ≤40 chars>" } }\n' +
+        '}\n' +
+        'If the surface has a currentSpec, treat it as the base and apply the message as\n' +
+        'an INCREMENTAL modification — carry forward everything not mentioned.',
     };
 
     // ── Call unified generator ───────────────────────────────────────────────

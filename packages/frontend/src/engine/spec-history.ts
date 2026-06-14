@@ -31,7 +31,13 @@ export const specHistory = {
   },
 
   getAll(appId: string): HistoryEntry[] {
-    return ['dashboard', 'explorer', 'analytics']
+    const prefix = `dsi:history:${appId}:`;
+    const tabs: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(prefix)) tabs.push(k.slice(prefix.length));
+    }
+    return tabs
       .flatMap((tab) => this.get(appId, tab))
       .sort((a, b) => b.savedAt - a.savedAt);
   },
@@ -48,6 +54,12 @@ export const specHistory = {
   },
 
   clearAll(appId: string): void {
-    ['dashboard', 'explorer', 'analytics'].forEach((tab) => this.clear(appId, tab));
+    const prefix = `dsi:history:${appId}:`;
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(prefix)) toRemove.push(k);
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
   },
 };

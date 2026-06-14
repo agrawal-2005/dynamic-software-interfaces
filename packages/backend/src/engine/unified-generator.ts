@@ -15,6 +15,8 @@ export interface SurfaceContext {
   vocabText: string;
   /** The user's current spec for this surface (null = defaults apply). */
   currentSpec: unknown;
+  /** JSON schema description for the spec this surface expects. Included verbatim in the AI prompt. */
+  specSchema: string;
 }
 
 export type UnifiedResult =
@@ -87,6 +89,7 @@ export class UnifiedGenerator {
           `Controls: ${s.purpose}`,
           specNote,
           `Vocabulary:\n${s.vocabText}`,
+          `Spec schema:\n${s.specSchema}`,
         ].join('\n');
       })
       .join('\n\n');
@@ -122,36 +125,11 @@ ROUTING RULES  (follow in order)
 6. Route by MEANING from the declared vocabulary — NOT by keyword lists, regex,
    word counts, or language. These rules are language-agnostic by design.
 
-Conflict example: "hide product" — if "product" is BOTH a sidebar item key AND
-a value in a data field's enumValues → needs_clarification with two named options.
+Conflict example: "hide product" — if "product" appears in BOTH a navigation surface's
+item keys AND a data field's enumValues → needs_clarification with two named options.
 
-Non-conflict example: "group by status" — "status" is a field key in the view
-vocabulary, not a sidebar item → route to view without asking.
-
-════════════════════════════════════
-SPEC SCHEMAS
-════════════════════════════════════
-For surface id="sidebar":
-{
-  "version": "1.0",
-  "items": [{ "key": "<item key>", "label": "<optional rename, omit if unchanged>", "visible": true|false }]
-}
-REQUIREMENT: every sidebar item from the vocabulary must appear in items[].
-
-For all other (view) surfaces:
-{
-  "version": "1.0",
-  "name": "<short label ≤80 chars>",
-  "layout": "<layout name>",
-  "fields": [{ "key": "<field key>", "label": "<optional rename>", "visible": true|false }],
-  "groupBy": "<groupable field key — omit if not needed>",
-  "filters": [{ "field": "<filterable key>", "op": "eq|neq|in|contains", "value": "<string or string[]>" }],
-  "sort": { "field": "<sortable key>", "direction": "asc|desc" },
-  "limit": 100,
-  "valueLabels": { "<fieldKey>": { "<rawValue>": "<display label ≤40 chars>" } }
-}
-If the surface has a currentSpec, treat it as the base and apply the message as
-an INCREMENTAL modification — carry forward everything not mentioned.
+Non-conflict example: "group by status" — "status" is a field key in exactly one
+surface's vocabulary → route to that surface without asking.
 
 ════════════════════════════════════
 OUTPUT  (ONLY valid JSON — no markdown fences, no prose)
