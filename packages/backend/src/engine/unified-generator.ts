@@ -168,6 +168,13 @@ ROUTING RULES  (follow in order)
      "feed" / "log" / "recent activity" → the layout whose description mentions "stream" or "feed"
 2. For each surface, check whether those concepts appear in its vocabulary
    (item key, item label, field key, field label, field enum value, layout name).
+   STRICT MATCH RULE: a surface matches only when the user's concept maps to a term
+   EXPLICITLY DECLARED in that surface's vocabulary. Semantic inference (rule 1) is
+   for translating user phrasing into declared terms — it CANNOT create new vocabulary
+   items. If a concept does not appear in a surface's declared vocabulary, that surface
+   does NOT match, regardless of how plausible it sounds.
+   Example: if a surface lists items [A, B, C] and the user says "hide D", D is NOT
+   a match for that surface even if D sounds like it could belong there.
 3. Exactly one vocabulary match  →  status="applied", targetSurface=<that id>.
 4. Two or more vocabulary matches →  status="needs_clarification".
 5. No vocabulary match at all    →  fall back to activeSurface as the target.

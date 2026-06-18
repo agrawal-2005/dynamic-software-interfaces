@@ -90,12 +90,50 @@ export function generateRouter(
       };
     });
 
+    // ── Pre-filter surfaces to prevent hallucinated clarification options ─────
+    //
+    // The AI can infer that any word "sounds like" a sidebar item even when it
+    // isn't declared. Guard against this deterministically: exclude the sidebar
+    // surface from the AI's context when the message cannot plausibly reference
+    // it (no declared item key/label match, no panel-visibility keywords).
+    // forceSurface always bypasses this check.
+
+    const activeSurfaces = forceSurface
+      ? surfaces
+      : (() => {
+          const msgLower = message.toLowerCase().trim();
+
+          // Keep sidebar only if the message references a declared item or panel keywords.
+          const couldTargetSidebar =
+            sidebarVocab.items.some(
+              (item) =>
+                msgLower.includes(item.key.toLowerCase()) ||
+                msgLower.includes(item.label.toLowerCase()),
+            ) ||
+            ['sidebar', 'panel', 'left', 'navigation'].some((kw) => msgLower.includes(kw));
+
+          // Keep nav only if the message references a declared tab or nav-bar keywords.
+          const couldTargetNav =
+            NAV_TABS.some(
+              (tab) =>
+                msgLower.includes(tab.key.toLowerCase()) ||
+                msgLower.includes(tab.label.toLowerCase()),
+            ) ||
+            ['navbar', 'tab bar', 'tab', 'top bar'].some((kw) => msgLower.includes(kw));
+
+          return surfaces.filter((s) => {
+            if (s.id === 'sidebar') return couldTargetSidebar;
+            if (s.id === 'nav')     return couldTargetNav;
+            return true;
+          });
+        })();
+
     // ── Call unified generator ───────────────────────────────────────────────
     try {
       const result = await unifiedGen.generate(
         message.trim(),
         section,
-        surfaces,
+        activeSurfaces,
         typeof forceSurface === 'string' ? forceSurface : undefined,
       );
 

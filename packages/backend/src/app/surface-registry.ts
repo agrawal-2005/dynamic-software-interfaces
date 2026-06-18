@@ -37,6 +37,7 @@ const NAV_SPEC_SCHEMA =
   'To hide individual tabs only: set visible=true, list the hidden tab keys in hiddenTabs.';
 
 const VIEW_SPEC_SCHEMA =
+  'ALWAYS return a COMPLETE spec — version, layout, and fields are REQUIRED every time.\n' +
   '{\n' +
   '  "version": "1.0",\n' +
   '  "name": "<short label ≤80 chars>",\n' +
@@ -48,8 +49,8 @@ const VIEW_SPEC_SCHEMA =
   '  "limit": 100,\n' +
   '  "valueLabels": { "<fieldKey>": { "<rawValue>": "<display label ≤40 chars>" } }\n' +
   '}\n' +
-  'If the surface has a currentSpec, treat it as the base and apply the message as\n' +
-  'an INCREMENTAL modification — carry forward everything not mentioned.';
+  'If currentSpec is null: use layout="table", list ALL vocabulary fields with visible=true, apply the message as the only change.\n' +
+  'If currentSpec is set: treat it as the base and apply the message as an INCREMENTAL modification — carry forward everything not mentioned.';
 
 // ── Request context ───────────────────────────────────────────────────────────
 
@@ -145,8 +146,11 @@ export function buildSurfaceRegistry(
       'Hiding items is display-only — no workspace or data is deleted.',
     specSchema: SIDEBAR_SPEC_SCHEMA,
     clarificationGuidance:
-      'List ONE option per currently-visible workspace item that could match the request, ' +
-      'plus ONE option for the entire panel. Limit to 3 most relevant. Use this format:\n' +
+      'ONLY generate options for items whose key or label appears VERBATIM in the vocabulary. ' +
+      'If the user\'s term does not match any listed item, generate ZERO sidebar options — ' +
+      'do not infer items that are not in the list.\n' +
+      'When a match exists, list ONE option per matching item plus ONE option for the entire panel. ' +
+      'Limit to 3 most relevant. Use this format:\n' +
       '  { label: "Hide [Item Name] from the panel",  hint: "Hide [Item Name] from the sidebar" }\n' +
       '  { label: "Hide the entire panel",            hint: "Hide the sidebar" }\n' +
       '  { label: "Restore [Item Name] in the panel", hint: "Show [Item Name] in the sidebar" }\n' +
@@ -167,7 +171,12 @@ export function buildSurfaceRegistry(
           `currently: ${isVisible ? 'visible' : 'hidden'}${rename}`
         );
       });
+      const itemKeys   = sidebarVocab.items.map((i) => i.key).join(', ');
+      const itemLabels = sidebarVocab.items.map((i) => i.label).join(', ');
       return (
+        `VALID TARGETS: only [${itemLabels}] (keys: ${itemKeys}). ` +
+        'Route here ONLY when the user names one of these exactly — ' +
+        'any other term (phase values, field names, tab names, layouts) belongs to another surface.\n' +
         `Panel: currently ${panelVisible ? 'visible' : 'HIDDEN (entire panel is not shown)'}\n` +
         'Workspace items inside the panel (can be hidden, shown, renamed, or reordered):\n' +
         itemLines.join('\n')
